@@ -1,6 +1,9 @@
 import Image from "next/image";
 import SlideGeneratorForm from "./components/SlideGeneratorForm";
 import V2ALogo from "./components/V2ALogo";
+import TemplateIcon from "./components/animations/TemplateIcon";
+import VisualizationIcon from "./components/animations/VisualizationIcon";
+import InsightIcon from "./components/animations/InsightIcon";
 
 export default function Home() {
   return (
@@ -34,18 +37,26 @@ export default function Home() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         {/* Value Proposition */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
-          <div className="text-center p-6 bg-white rounded-lg shadow-sm border border-gray-100">
-            <div className="text-v2a-blue text-2xl mb-2">🎯</div>
+          <div className="text-center p-6 bg-white rounded-lg shadow-sm border border-gray-100 group hover:shadow-md transition-all duration-300">
+            <div className="h-24 flex items-center justify-center mb-4">
+              <TemplateIcon />
+            </div>
             <h3 className="font-georgia text-lg text-v2a-blue mb-2">Professional Templates</h3>
             <p className="text-gray-600 font-calibri">V2A-approved slide designs that maintain consistency</p>
           </div>
-          <div className="text-center p-6 bg-white rounded-lg shadow-sm border border-gray-100">
-            <div className="text-v2a-blue text-2xl mb-2">📊</div>
+          
+          <div className="text-center p-6 bg-white rounded-lg shadow-sm border border-gray-100 group hover:shadow-md transition-all duration-300">
+            <div className="h-24 flex items-center justify-center mb-4">
+              <VisualizationIcon />
+            </div>
             <h3 className="font-georgia text-lg text-v2a-blue mb-2">Smart Visualization</h3>
             <p className="text-gray-600 font-calibri">Automatically generate impactful data visualizations</p>
           </div>
-          <div className="text-center p-6 bg-white rounded-lg shadow-sm border border-gray-100">
-            <div className="text-v2a-blue text-2xl mb-2">💡</div>
+          
+          <div className="text-center p-6 bg-white rounded-lg shadow-sm border border-gray-100 group hover:shadow-md transition-all duration-300">
+            <div className="h-24 flex items-center justify-center mb-4">
+              <InsightIcon />
+            </div>
             <h3 className="font-georgia text-lg text-v2a-blue mb-2">Strategic Insights</h3>
             <p className="text-gray-600 font-calibri">AI-powered "So What?" analysis for key takeaways</p>
           </div>

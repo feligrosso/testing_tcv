@@ -50,7 +50,7 @@ export default function SlideGeneratorForm() {
               className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-v2a-blue focus:ring-v2a-blue font-calibri"
               value={formData.title}
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              placeholder="E.g., Don Q outpaces Barceló in revenue growth"
+              placeholder="Enter a clear and concise title that captures your key message (AI will help refine it)"
             />
           </label>
           <label className="block mt-4">
@@ -60,7 +60,7 @@ export default function SlideGeneratorForm() {
               className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-v2a-blue focus:ring-v2a-blue font-calibri"
               value={formData.subtitle}
               onChange={(e) => setFormData({ ...formData, subtitle: e.target.value })}
-              placeholder="E.g., 2019-2023 (% based on USD $)"
+              placeholder="Add context like time period, metrics, or scope (Optional - AI will suggest relevant details)"
             />
           </label>
         </motion.div>
@@ -81,7 +81,7 @@ export default function SlideGeneratorForm() {
               className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-v2a-blue focus:ring-v2a-blue min-h-[200px] font-calibri"
               value={formData.rawData}
               onChange={(e) => setFormData({ ...formData, rawData: e.target.value })}
-              placeholder="Paste your data here or drag and drop a file..."
+              placeholder="Paste your data here or drag and drop a file... (AI will help structure and visualize it)"
             />
           </label>
         </motion.div>
@@ -103,7 +103,7 @@ export default function SlideGeneratorForm() {
               className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-v2a-blue focus:ring-v2a-blue font-calibri"
               value={formData.soWhat}
               onChange={(e) => setFormData({ ...formData, soWhat: e.target.value })}
-              placeholder="E.g., Don Q's growth is sustained and outpaces Barceló, positioning it as the better acquisition target"
+              placeholder="Let AI help you craft a compelling insight that drives action from your data"
             />
           </label>
         </motion.div>
@@ -123,7 +123,7 @@ export default function SlideGeneratorForm() {
                 className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-v2a-blue focus:ring-v2a-blue font-calibri"
                 value={formData.source}
                 onChange={(e) => setFormData({ ...formData, source: e.target.value })}
-                placeholder="E.g., Source: Internal Sales Report from MJM (2019-2023)"
+                placeholder="Enter your data source (e.g., 'Q4 2023 Financial Report', 'Market Research Study')"
               />
             </label>
             <label className="block">
