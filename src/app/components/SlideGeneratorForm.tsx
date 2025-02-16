@@ -94,7 +94,7 @@ export default function SlideGeneratorForm() {
           transition={{ duration: 0.3, delay: 0.2 }}
         >
           <label className="block">
-            <span className="text-lg font-georgia text-v2a-blue">Step 3: Define Your "So What?"</span>
+            <span className="text-lg font-georgia text-v2a-blue">Step 3: Define Your &quot;So What?&quot;</span>
             <p className="text-sm text-gray-600 mb-3 font-calibri">
               Provide a clear, impactful conclusion from your data
             </p>
@@ -123,7 +123,7 @@ export default function SlideGeneratorForm() {
                 className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-v2a-blue focus:ring-v2a-blue font-calibri"
                 value={formData.source}
                 onChange={(e) => setFormData({ ...formData, source: e.target.value })}
-                placeholder="Enter your data source (e.g., 'Q4 2023 Financial Report', 'Market Research Study')"
+                placeholder="Enter your data source (e.g., &apos;Q4 2023 Financial Report&apos;, &apos;Market Research Study&apos;)"
               />
             </label>
             <label className="block">
