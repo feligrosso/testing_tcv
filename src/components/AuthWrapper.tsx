@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth } from '@/lib/firebase/firebase';
 import SignInWithGoogle from './SignInWithGoogle';
 import V2ALogo from '@/app/components/V2ALogo';
@@ -11,10 +11,16 @@ interface AuthWrapperProps {
 }
 
 export default function AuthWrapper({ children }: AuthWrapperProps) {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Only set up the auth listener if auth is initialized
+    if (!auth) {
+      setLoading(false);
+      return;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
       setLoading(false);
@@ -33,7 +39,8 @@ export default function AuthWrapper({ children }: AuthWrapperProps) {
     );
   }
 
-  if (!user) {
+  // If auth is not initialized or user is not signed in
+  if (!auth || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-white to-gray-50">
         <div className="max-w-md w-full mx-4">
