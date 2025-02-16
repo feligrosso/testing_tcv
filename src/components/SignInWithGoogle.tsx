@@ -6,19 +6,42 @@ import { useState } from 'react';
 
 export default function SignInWithGoogle() {
   const [error, setError] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState<string | null>(null);
 
   const handleSignIn = async () => {
+    setError(null);
+    setDebugInfo(null);
+
     if (!auth) {
       setError("Authentication is not initialized. Please try again later.");
+      setDebugInfo("Auth object is undefined. Check Firebase initialization.");
       return;
     }
 
     try {
       const provider = new GoogleAuthProvider();
+      // Add additional OAuth scopes if needed
+      provider.addScope('email');
+      provider.addScope('profile');
+      
+      // Log the current domain
+      const currentDomain = typeof window !== 'undefined' ? window.location.hostname : 'unknown';
+      console.log('Current domain:', currentDomain);
+      
       await signInWithPopup(auth, provider);
       setError(null);
     } catch (error: any) {
       console.error('Error signing in with Google:', error);
+      
+      // Create detailed debug info
+      const debugDetails = [
+        `Error code: ${error.code || 'unknown'}`,
+        `Error message: ${error.message || 'no message'}`,
+        `Domain: ${typeof window !== 'undefined' ? window.location.hostname : 'unknown'}`,
+        `Firebase initialized: ${!!auth}`,
+      ].join('\n');
+      
+      setDebugInfo(debugDetails);
       
       // Handle specific error cases
       if (error.code === 'auth/popup-blocked') {
@@ -26,12 +49,14 @@ export default function SignInWithGoogle() {
       } else if (error.code === 'auth/popup-closed-by-user') {
         setError("The sign-in popup was closed. Please try again.");
       } else if (error.code === 'auth/unauthorized-domain') {
-        setError("This domain is not authorized for Google sign-in. Please contact the administrator.");
+        setError(`This domain is not authorized for Google sign-in. Please add "${typeof window !== 'undefined' ? window.location.hostname : 'this domain'}" to the authorized domains in Firebase Console.`);
       } else if (error.code === 'auth/cancelled-popup-request') {
         // This is a common case when user clicks multiple times, we can ignore it
         return;
+      } else if (error.code === 'auth/internal-error') {
+        setError("An internal error occurred. Please check if third-party cookies are enabled in your browser.");
       } else {
-        setError("Failed to sign in with Google. Please try again later.");
+        setError(`Failed to sign in with Google: ${error.message || 'Unknown error'}`);
       }
     }
   };
@@ -53,13 +78,16 @@ export default function SignInWithGoogle() {
         <span className="font-calibri">Sign in with Google</span>
       </button>
       
-      {error && (
+      {(error || debugInfo) && (
         <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-sm text-red-600 text-center">{error}</p>
-          {error.includes("domain is not authorized") && (
-            <p className="text-xs text-red-500 text-center mt-2">
-              Make sure to add {typeof window !== 'undefined' ? window.location.hostname : 'this domain'} to the authorized domains in Firebase Console.
-            </p>
+          {error && (
+            <p className="text-sm text-red-600 text-center">{error}</p>
+          )}
+          {debugInfo && (
+            <details className="mt-2">
+              <summary className="text-xs text-gray-600 cursor-pointer">Debug Information</summary>
+              <pre className="mt-2 text-xs text-gray-600 whitespace-pre-wrap">{debugInfo}</pre>
+            </details>
           )}
         </div>
       )}
