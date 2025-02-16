@@ -1,48 +1,73 @@
-import Link from "next/link";
+import Image from "next/image";
+import SlideGeneratorForm from "./components/SlideGeneratorForm";
+import V2ALogo from "./components/V2ALogo";
 
 export default function Home() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-8">
-      <div>
-        <h2 className="text-2xl font-semibold text-center border p-4 font-mono rounded-md">
-          Get started by choosing a template path from the /paths/ folder.
-        </h2>
-      </div>
-      <div>
-        <h1 className="text-6xl font-bold text-center">Make anything you imagine 🪄</h1>
-        <h2 className="text-2xl text-center font-light text-gray-500 pt-4">
-          This whole page will be replaced when you run your template path.
-        </h2>
-      </div>
-      <div className="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="border rounded-lg p-6 hover:bg-gray-100 transition-colors">
-          <h3 className="text-xl font-semibold">AI Chat App</h3>
-          <p className="mt-2 text-sm text-gray-600">
-            An intelligent conversational app powered by AI models, featuring real-time responses
-            and seamless integration with Next.js and various AI providers.
-          </p>
-        </div>
-        <div className="border rounded-lg p-6 hover:bg-gray-100 transition-colors">
-          <h3 className="text-xl font-semibold">AI Image Generation App</h3>
-          <p className="mt-2 text-sm text-gray-600">
-            Create images from text prompts using AI, powered by the Replicate API and Next.js.
-          </p>
-        </div>
-        <div className="border rounded-lg p-6 hover:bg-gray-100 transition-colors">
-          <h3 className="text-xl font-semibold">Social Media App</h3>
-          <p className="mt-2 text-sm text-gray-600">
-            A feature-rich social platform with user profiles, posts, and interactions using
-            Firebase and Next.js.
-          </p>
-        </div>
-        <div className="border rounded-lg p-6 hover:bg-gray-100 transition-colors">
-          <h3 className="text-xl font-semibold">Voice Notes App</h3>
-          <p className="mt-2 text-sm text-gray-600">
-            A voice-based note-taking app with real-time transcription using Deepgram API, 
-            Firebase integration for storage, and a clean, simple interface built with Next.js.
-          </p>
+    <main className="min-h-screen bg-gradient-to-b from-white to-gray-50">
+      {/* Header with V2A branding */}
+      <div className="bg-white border-b shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center space-x-2">
+              <V2ALogo className="h-8 w-32" />
+              <div className="h-8 w-px bg-gray-200 mx-4" />
+              <span className="text-v2a-blue font-georgia text-xl">SlideCraft Pro</span>
+            </div>
+          </div>
         </div>
       </div>
+
+      {/* Hero Section */}
+      <div className="bg-v2a-blue text-white py-16">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto">
+            <h1 className="text-5xl font-georgia mb-6">Transform Your Data into Consultant-Quality Slides</h1>
+            <p className="text-xl font-calibri text-gray-200">
+              Powered by V2A Consulting's expertise in data visualization and strategic insights
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        {/* Value Proposition */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
+          <div className="text-center p-6 bg-white rounded-lg shadow-sm border border-gray-100">
+            <div className="text-v2a-blue text-2xl mb-2">🎯</div>
+            <h3 className="font-georgia text-lg text-v2a-blue mb-2">Professional Templates</h3>
+            <p className="text-gray-600 font-calibri">V2A-approved slide designs that maintain consistency</p>
+          </div>
+          <div className="text-center p-6 bg-white rounded-lg shadow-sm border border-gray-100">
+            <div className="text-v2a-blue text-2xl mb-2">📊</div>
+            <h3 className="font-georgia text-lg text-v2a-blue mb-2">Smart Visualization</h3>
+            <p className="text-gray-600 font-calibri">Automatically generate impactful data visualizations</p>
+          </div>
+          <div className="text-center p-6 bg-white rounded-lg shadow-sm border border-gray-100">
+            <div className="text-v2a-blue text-2xl mb-2">💡</div>
+            <h3 className="font-georgia text-lg text-v2a-blue mb-2">Strategic Insights</h3>
+            <p className="text-gray-600 font-calibri">AI-powered "So What?" analysis for key takeaways</p>
+          </div>
+        </div>
+
+        {/* Form Section */}
+        <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-8">
+          <SlideGeneratorForm />
+        </div>
+      </div>
+
+      {/* Footer */}
+      <footer className="bg-v2a-blue text-white mt-16">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="flex justify-between items-center">
+            <V2ALogo className="h-6 w-24" isWhite />
+            <p className="text-sm">
+              © {new Date().getFullYear()} V2A Consulting. All rights reserved.
+            </p>
+          </div>
+        </div>
+      </footer>
     </main>
   );
 }

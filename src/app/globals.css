@@ -2,9 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Import fonts */
+@import url('https://fonts.googleapis.com/css2?family=Georgia:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Calibri:wght@400;700&display=swap');
+
+/* Custom font classes */
+.font-georgia {
+  font-family: Georgia, serif;
+}
+
+.font-calibri {
+  font-family: Calibri, 'Segoe UI', sans-serif;
+}
+
+/* Base styles */
 :root {
   --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 214, 219, 220;
+  --background-start-rgb: 255, 255, 255;
   --background-end-rgb: 255, 255, 255;
 }
 
@@ -24,6 +38,27 @@ body {
       rgb(var(--background-end-rgb))
     )
     rgb(var(--background-start-rgb));
+}
+
+/* Custom styling for form elements */
+input, textarea, select {
+  font-family: Calibri, 'Segoe UI', sans-serif;
+  font-size: 14px;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: Georgia, serif;
+}
+
+p, span, div {
+  font-family: Calibri, 'Segoe UI', sans-serif;
+  font-size: 14px;
+}
+
+/* V2A brand colors */
+:root {
+  --v2a-blue: #003366;
+  --v2a-light-blue: #0066cc;
 }
 
 @layer utilities {
