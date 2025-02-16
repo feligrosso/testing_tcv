@@ -10,7 +10,20 @@ const openai = new OpenAI({
 export async function POST(req: Request) {
   // Check for API key at runtime
   if (!process.env.OPENAI_API_KEY) {
-    return NextResponse.json({ error: "OpenAI API key is not configured" }, { status: 500 });
+    return NextResponse.json(
+      { 
+        error: "OpenAI API key is not configured", 
+        message: "Please set up your API key in the environment variables.",
+        setup: {
+          steps: [
+            "Get an API key from OpenAI (https://platform.openai.com/api-keys)",
+            "Add it to your environment variables",
+            "Restart the application"
+          ]
+        }
+      }, 
+      { status: 400 }
+    );
   }
 
   try {
@@ -38,6 +51,9 @@ export async function POST(req: Request) {
     return new StreamingTextResponse(stream);
   } catch (error) {
     console.error("Error in chat route:", error);
-    return NextResponse.json({ error: "Failed to process chat request" }, { status: 500 });
+    return NextResponse.json({ 
+      error: "Failed to process chat request",
+      message: error instanceof Error ? error.message : "Unknown error occurred"
+    }, { status: 500 });
   }
 }

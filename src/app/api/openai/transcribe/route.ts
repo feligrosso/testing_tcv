@@ -11,11 +11,23 @@ const openai = new OpenAI({
 export async function POST(req: Request) {
   // Check for API key at runtime
   if (!process.env.OPENAI_API_KEY) {
-    return NextResponse.json({ error: "OpenAI API key is not configured" }, { status: 500 });
+    return NextResponse.json(
+      { 
+        error: "OpenAI API key is not configured", 
+        message: "Please set up your API key in the environment variables.",
+        setup: {
+          steps: [
+            "Get an API key from OpenAI (https://platform.openai.com/api-keys)",
+            "Add it to your environment variables",
+            "Restart the application"
+          ]
+        }
+      }, 
+      { status: 400 }
+    );
   }
 
   const body = await req.json();
-
   const base64Audio = body.audio;
 
   // Convert the base64 audio data to a Buffer
@@ -49,6 +61,9 @@ export async function POST(req: Request) {
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
-    return NextResponse.json({ error: "Failed to process audio" }, { status: 500 });
+    return NextResponse.json({ 
+      error: "Failed to process audio",
+      message: error instanceof Error ? error.message : "Unknown error occurred"
+    }, { status: 500 });
   }
 }
