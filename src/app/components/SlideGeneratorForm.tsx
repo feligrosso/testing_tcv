@@ -18,6 +18,15 @@ interface FormError {
   type: 'error' | 'warning' | 'info';
 }
 
+interface SlideContent {
+  title: string;
+  subtitle?: string;
+  visualization: string;
+  key_points: string[];
+  so_what: string;
+  recommendations?: string[];
+}
+
 export default function SlideGeneratorForm() {
   const [formData, setFormData] = useState<FormData>({
     title: '',
@@ -33,6 +42,9 @@ export default function SlideGeneratorForm() {
     message: '',
     type: 'error'
   });
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [slideContent, setSlideContent] = useState<SlideContent | null>(null);
 
   const validateForm = () => {
     if (!formData.title.trim()) {
@@ -59,41 +71,50 @@ export default function SlideGeneratorForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError({ show: false, message: '', type: 'error' });
+    setSlideContent(null);
     
     // Validate form
     if (!validateForm()) {
       return;
     }
 
-    // Check if OpenAI API key is configured
-    if (!process.env.OPENAI_API_KEY) {
-      setFormError({
-        show: true,
-        message: 'OpenAI API key is not configured. Please set up your API keys in the environment variables.',
-        type: 'warning'
-      });
-      return;
-    }
+    setIsLoading(true);
+    setFormError({
+      show: true,
+      message: 'Generating your slide...',
+      type: 'info'
+    });
 
     try {
-      // TODO: Implement slide generation logic
-      console.log('Form submitted:', formData);
-      
-      // Show processing message
-      setFormError({
-        show: true,
-        message: 'Processing your request...',
-        type: 'info'
+      const response = await fetch('/api/generate-slides', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
       });
 
-      // TODO: Add API call here
+      const data = await response.json();
 
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to generate slide');
+      }
+
+      setSlideContent(data);
+      setFormError({
+        show: true,
+        message: 'Slide generated successfully!',
+        type: 'info'
+      });
     } catch (error) {
+      console.error('Error generating slide:', error);
       setFormError({
         show: true,
         message: error instanceof Error ? error.message : 'An error occurred while generating your slide',
         type: 'error'
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -272,12 +293,69 @@ export default function SlideGeneratorForm() {
         >
           <button
             type="submit"
-            className="w-full bg-v2a-blue text-white px-8 py-4 rounded-lg hover:bg-v2a-light-blue transition-colors font-georgia text-lg shadow-md hover:shadow-lg"
+            disabled={isLoading}
+            className={`w-full px-8 py-4 rounded-lg font-georgia text-lg shadow-md hover:shadow-lg transition-all ${
+              isLoading 
+                ? 'bg-gray-400 cursor-not-allowed' 
+                : 'bg-v2a-blue text-white hover:bg-v2a-light-blue'
+            }`}
           >
-            Generate V2A Slides
+            {isLoading ? 'Generating...' : 'Generate V2A Slides'}
           </button>
         </motion.div>
       </form>
+
+      {/* Display Generated Content */}
+      {slideContent && (
+        <motion.div
+          className="mt-8 p-6 bg-white rounded-xl shadow-lg border border-gray-100"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+        >
+          <h3 className="text-xl font-georgia text-v2a-blue mb-4">Generated Slide Content</h3>
+          
+          <div className="space-y-4">
+            <div>
+              <h4 className="font-georgia text-gray-700">Title</h4>
+              <p className="text-gray-900">{slideContent.title}</p>
+              {slideContent.subtitle && (
+                <p className="text-gray-600 mt-1">{slideContent.subtitle}</p>
+              )}
+            </div>
+
+            <div>
+              <h4 className="font-georgia text-gray-700">Visualization Suggestion</h4>
+              <p className="text-gray-900">{slideContent.visualization}</p>
+            </div>
+
+            <div>
+              <h4 className="font-georgia text-gray-700">Key Points</h4>
+              <ul className="list-disc pl-5 space-y-1">
+                {slideContent.key_points.map((point, index) => (
+                  <li key={index} className="text-gray-900">{point}</li>
+                ))}
+              </ul>
+            </div>
+
+            <div>
+              <h4 className="font-georgia text-gray-700">So What?</h4>
+              <p className="text-gray-900">{slideContent.so_what}</p>
+            </div>
+
+            {slideContent.recommendations && slideContent.recommendations.length > 0 && (
+              <div>
+                <h4 className="font-georgia text-gray-700">Recommendations</h4>
+                <ul className="list-disc pl-5 space-y-1">
+                  {slideContent.recommendations.map((rec, index) => (
+                    <li key={index} className="text-gray-900">{rec}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </motion.div>
+      )}
     </div>
   );
 } 
