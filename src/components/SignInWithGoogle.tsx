@@ -17,9 +17,22 @@ export default function SignInWithGoogle() {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
       setError(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error signing in with Google:', error);
-      setError("Failed to sign in with Google. Please try again.");
+      
+      // Handle specific error cases
+      if (error.code === 'auth/popup-blocked') {
+        setError("The sign-in popup was blocked. Please allow popups for this site and try again.");
+      } else if (error.code === 'auth/popup-closed-by-user') {
+        setError("The sign-in popup was closed. Please try again.");
+      } else if (error.code === 'auth/unauthorized-domain') {
+        setError("This domain is not authorized for Google sign-in. Please contact the administrator.");
+      } else if (error.code === 'auth/cancelled-popup-request') {
+        // This is a common case when user clicks multiple times, we can ignore it
+        return;
+      } else {
+        setError("Failed to sign in with Google. Please try again later.");
+      }
     }
   };
 
@@ -41,7 +54,14 @@ export default function SignInWithGoogle() {
       </button>
       
       {error && (
-        <p className="mt-2 text-sm text-red-600 text-center">{error}</p>
+        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-sm text-red-600 text-center">{error}</p>
+          {error.includes("domain is not authorized") && (
+            <p className="text-xs text-red-500 text-center mt-2">
+              Make sure to add {typeof window !== 'undefined' ? window.location.hostname : 'this domain'} to the authorized domains in Firebase Console.
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
