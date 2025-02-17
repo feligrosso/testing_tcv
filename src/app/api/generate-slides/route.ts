@@ -48,19 +48,28 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
 // Validate environment variables
 function validateEnv() {
   const apiKey = process.env.OPENAI_API_KEY;
+  const environment = process.env.NODE_ENV || 'unknown';
+  const vercelEnv = process.env.VERCEL_ENV || 'not_vercel';
+  
   console.log('Environment Check:', {
     hasApiKey: !!apiKey,
-    nodeEnv: process.env.NODE_ENV,
+    nodeEnv: environment,
+    vercelEnv: vercelEnv,
     timestamp: new Date().toISOString()
   });
 
   if (!apiKey) {
+    const error = new Error('OpenAI API key is required');
     console.error('Environment Error:', {
-      error: 'Missing OpenAI API key',
-      availableEnvVars: Object.keys(process.env).filter(key => !key.includes('KEY')),
+      error: error.message,
+      environment: environment,
+      vercelEnv: vercelEnv,
+      availableEnvVars: Object.keys(process.env)
+        .filter(key => !key.toLowerCase().includes('key') && !key.toLowerCase().includes('secret'))
+        .join(', '),
       timestamp: new Date().toISOString()
     });
-    throw new Error('OpenAI API key is required');
+    throw error;
   }
 
   return apiKey;
@@ -91,12 +100,16 @@ export async function POST(req: Request) {
       });
       return NextResponse.json({
         error: true,
-        message: 'Service configuration error',
+        message: 'Service configuration error: The OpenAI API key is not properly configured in the environment. Please check the deployment settings.',
         errorType: 'error',
         title: 'Configuration Error',
         subtitle: 'Service Misconfigured',
         visualType: 'Bar Chart',
-        keyPoints: ['The service is not properly configured'],
+        keyPoints: [
+          'The service is not properly configured',
+          'Environment variables are missing or invalid',
+          'Please check the deployment settings in Vercel'
+        ],
         source: 'System Message'
       }, { status: 503 });
     }
