@@ -2,24 +2,17 @@ import { NextResponse } from "next/server";
 import { createSlideGenerationService } from '@/lib/services/SlideGenerationService';
 
 // Configure for optimized Node.js runtime with explicit settings
-export const runtime = 'nodejs';
+export const runtime = 'edge';
 export const preferredRegion = 'iad1';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60; // Adjusted to 60 seconds to comply with Vercel hobby plan limits
 
-// Add production-specific configuration
+// Remove maxDuration as it's not needed for edge runtime
 export const config = {
   api: {
     responseLimit: false,
     bodyParser: {
       sizeLimit: '10mb',
     },
-  },
-  runtime: {
-    type: 'nodejs',
-    regions: ['iad1'],
-    maxDuration: 60000, // 60 seconds in milliseconds
-    memory: 1024, // 1GB memory
   },
   cache: 'no-store'
 };
@@ -28,11 +21,8 @@ export const config = {
 console.log('Route Module Configuration:', {
   runtime,
   dynamic,
-  maxDuration,
   preferredRegion,
   timestamp: new Date().toISOString(),
-  nodeVersion: process.version,
-  moduleType: import.meta.url ? 'ESM' : 'CJS',
   environment: process.env.NODE_ENV,
   isVercel: process.env.VERCEL === '1',
   vercelEnv: process.env.VERCEL_ENV,
