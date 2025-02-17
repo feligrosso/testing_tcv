@@ -6,7 +6,7 @@ import { AuthProvider } from "@/lib/contexts/AuthContext";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "V2A SlideCraft Pro",
+  title: "TuConsultor V2A",
   description: "Transform your data into consultant-quality slides",
 };
 

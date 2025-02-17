@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 
 interface FormData {
@@ -28,6 +28,7 @@ interface SlideContent {
 }
 
 export default function SlideGeneratorForm() {
+  const [mounted, setMounted] = useState(false);
   const [formData, setFormData] = useState<FormData>({
     title: '',
     subtitle: '',
@@ -45,6 +46,20 @@ export default function SlideGeneratorForm() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [slideContent, setSlideContent] = useState<SlideContent | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Don't render anything until mounted to prevent hydration errors
+  if (!mounted) {
+    return <div className="max-w-4xl mx-auto space-y-8">
+      <div className="animate-pulse">
+        <div className="h-8 bg-gray-200 rounded w-1/3 mb-4"></div>
+        <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+      </div>
+    </div>;
+  }
 
   const validateForm = () => {
     if (!formData.title.trim()) {
@@ -120,28 +135,6 @@ export default function SlideGeneratorForm() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
-      {!process.env.OPENAI_API_KEY && (
-        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <p className="text-sm text-yellow-700">
-                API keys not configured. To use this application:
-                <ol className="list-decimal ml-5 mt-2">
-                  <li>Get an API key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline">OpenAI</a></li>
-                  <li>Add it to your environment variables</li>
-                  <li>Restart the application</li>
-                </ol>
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
       {formError.show && (
         <div className={`p-4 rounded-lg ${
           formError.type === 'error' ? 'bg-red-50 border-l-4 border-red-400 text-red-700' :
@@ -182,8 +175,8 @@ export default function SlideGeneratorForm() {
         {/* Title Section */}
         <motion.div 
           className="space-y-4 bg-gray-50 p-6 rounded-lg border border-gray-200"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={mounted ? { opacity: 0, y: 20 } : false}
+          animate={mounted ? { opacity: 1, y: 0 } : false}
           transition={{ duration: 0.3 }}
         >
           <label className="block">
@@ -211,8 +204,8 @@ export default function SlideGeneratorForm() {
         {/* Data Input Section */}
         <motion.div 
           className="space-y-4 bg-gray-50 p-6 rounded-lg border border-gray-200"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={mounted ? { opacity: 0, y: 20 } : false}
+          animate={mounted ? { opacity: 1, y: 0 } : false}
           transition={{ duration: 0.3, delay: 0.1 }}
         >
           <label className="block">
@@ -232,8 +225,8 @@ export default function SlideGeneratorForm() {
         {/* "So What?" Section */}
         <motion.div 
           className="space-y-4 bg-gray-50 p-6 rounded-lg border border-gray-200"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={mounted ? { opacity: 0, y: 20 } : false}
+          animate={mounted ? { opacity: 1, y: 0 } : false}
           transition={{ duration: 0.3, delay: 0.2 }}
         >
           <label className="block">
@@ -254,8 +247,8 @@ export default function SlideGeneratorForm() {
         {/* Source and Theme */}
         <motion.div 
           className="space-y-4 bg-gray-50 p-6 rounded-lg border border-gray-200"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={mounted ? { opacity: 0, y: 20 } : false}
+          animate={mounted ? { opacity: 1, y: 0 } : false}
           transition={{ duration: 0.3, delay: 0.3 }}
         >
           <div className="grid grid-cols-2 gap-6">
@@ -287,8 +280,8 @@ export default function SlideGeneratorForm() {
         {/* Submit Button */}
         <motion.div 
           className="pt-4"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={mounted ? { opacity: 0, y: 20 } : false}
+          animate={mounted ? { opacity: 1, y: 0 } : false}
           transition={{ duration: 0.3, delay: 0.4 }}
         >
           <button
@@ -309,8 +302,8 @@ export default function SlideGeneratorForm() {
       {slideContent && (
         <motion.div
           className="mt-8 p-6 bg-white rounded-xl shadow-lg border border-gray-100"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={mounted ? { opacity: 0, y: 20 } : false}
+          animate={mounted ? { opacity: 1, y: 0 } : false}
           transition={{ duration: 0.3 }}
         >
           <h3 className="text-xl font-georgia text-v2a-blue mb-4">Generated Slide Content</h3>

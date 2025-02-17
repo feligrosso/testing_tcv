@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useEffect, useState } from "react";
+import React, { createContext, useLayoutEffect, useState } from "react";
 import { signInWithPopup, GoogleAuthProvider, signOut as firebaseSignOut, onAuthStateChanged } from "firebase/auth";
 import { User } from "firebase/auth";
 import { auth } from "../firebase/firebase";
@@ -23,17 +23,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // Check if auth is initialized
-    if (!auth) {
-      setLoading(false);
-      return;
-    }
+  useLayoutEffect(() => {
+    let unsubscribe = () => {};
 
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      setLoading(false);
-    });
+    // Defer auth state listener to avoid hydration issues
+    const initAuth = () => {
+      if (!auth) {
+        setLoading(false);
+        return;
+      }
+
+      unsubscribe = onAuthStateChanged(auth, (user) => {
+        setUser(user);
+        setLoading(false);
+      });
+    };
+
+    // Delay initialization slightly to ensure client-side only
+    setTimeout(initAuth, 0);
 
     return () => unsubscribe();
   }, []);
