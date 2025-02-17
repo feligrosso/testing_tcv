@@ -13,23 +13,48 @@ const responseHeaders = {
 
 // Try different ways to access environment variables
 function getOpenAIKey() {
-  // Log all environment variables (excluding sensitive values)
-  const envVars = Object.keys(process.env).sort();
-  console.log('All Environment Variables:', {
-    count: envVars.length,
-    names: envVars.filter(key => !key.toLowerCase().includes('key') && !key.toLowerCase().includes('secret')),
-    hasOpenAIKey: envVars.includes('OPENAI_API_KEY'),
+  // First, log the raw environment state
+  console.log('Raw Environment State:', {
+    hasProcess: typeof process !== 'undefined',
+    hasEnv: typeof process.env !== 'undefined',
+    envType: typeof process.env,
     timestamp: new Date().toISOString()
   });
 
-  // Get the key directly
-  const key = process.env.OPENAI_API_KEY;
+  // Log all environment variables (excluding sensitive values)
+  const envVars = Object.keys(process.env).sort();
+  console.log('Environment Variables State:', {
+    count: envVars.length,
+    allNames: envVars, // Log all names to see exactly what's available
+    hasOpenAIKey: envVars.includes('OPENAI_API_KEY'),
+    hasLowercaseKey: envVars.includes('openai_api_key'),
+    vercelEnv: process.env.VERCEL_ENV,
+    timestamp: new Date().toISOString()
+  });
+
+  // Try multiple ways to get the key
+  const possibleKeys = {
+    standard: process.env.OPENAI_API_KEY,
+    lowercase: process.env.openai_api_key,
+    fromEnvObject: process.env['OPENAI_API_KEY'],
+  };
+
+  console.log('Key Access Attempts:', {
+    standardExists: !!possibleKeys.standard,
+    lowercaseExists: !!possibleKeys.lowercase,
+    fromEnvObjectExists: !!possibleKeys.fromEnvObject,
+    timestamp: new Date().toISOString()
+  });
+
+  // Get the key from any available source
+  const key = possibleKeys.standard || possibleKeys.lowercase || possibleKeys.fromEnvObject;
 
   if (!key) {
     console.error('OpenAI API Key Missing:', {
       envVarsAvailable: envVars.length > 0,
       nodeEnv: process.env.NODE_ENV,
       isVercel: process.env.VERCEL === '1',
+      vercelEnv: process.env.VERCEL_ENV,
       timestamp: new Date().toISOString()
     });
     return null;
@@ -50,10 +75,13 @@ function getOpenAIKey() {
 }
 
 export async function POST(req: Request) {
-  console.log('Starting Request Processing:', {
+  // Log complete request context
+  console.log('Request Context:', {
     nodeEnv: process.env.NODE_ENV,
     isVercel: process.env.VERCEL === '1',
     vercelEnv: process.env.VERCEL_ENV,
+    headers: Object.fromEntries(req.headers.entries()),
+    url: req.url,
     timestamp: new Date().toISOString()
   });
 
@@ -61,7 +89,7 @@ export async function POST(req: Request) {
     // Parse request first to validate it's properly formatted
     const reqData = await req.json();
 
-    // Get API key
+    // Get API key with enhanced error details
     const apiKey = getOpenAIKey();
     
     if (!apiKey) {
@@ -74,8 +102,9 @@ export async function POST(req: Request) {
           vercelEnv: process.env.VERCEL_ENV,
           envVarsCount: Object.keys(process.env).length,
           hasEnvVars: Object.keys(process.env).length > 0,
-          envVarNames: Object.keys(process.env)
-            .filter(key => !key.toLowerCase().includes('key') && !key.toLowerCase().includes('secret')),
+          // Log all environment variable names for debugging
+          allEnvVars: Object.keys(process.env),
+          timestamp: new Date().toISOString()
         }
       };
       console.error('API Key Missing:', error);
