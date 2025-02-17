@@ -73,14 +73,9 @@ export class SlideGenerationService {
   private static readonly RETRY_DELAY = 1000;
 
   constructor(apiKey: string) {
-    console.log('Raw API Key Format:', {
-        keyFormat: {
-            prefix: apiKey?.substring(0, 7),
-            length: apiKey?.length,
-            isStandardFormat: apiKey?.startsWith('sk-') && !apiKey?.startsWith('sk-proj-'),
-            containsProj: apiKey?.includes('proj'),
-            timestamp: new Date().toISOString()
-        }
+    console.log('Initializing with API key:', {
+        keyLength: apiKey?.length,
+        timestamp: new Date().toISOString()
     });
 
     if (!apiKey) {
@@ -89,20 +84,9 @@ export class SlideGenerationService {
     }
 
     try {
-        // Convert project-specific key format to standard OpenAI format if needed
-        let formattedKey = apiKey;
-        if (apiKey.startsWith('sk-proj-')) {
-            console.log('Converting project-specific key format to standard format');
-            formattedKey = 'sk-' + apiKey.substring('sk-proj-'.length);
-            console.log('Key Format Conversion:', {
-                originalPrefix: apiKey.substring(0, 7),
-                newPrefix: formattedKey.substring(0, 7),
-                timestamp: new Date().toISOString()
-            });
-        }
-
+        // Initialize OpenAI client with the key as-is
         this.openai = new OpenAI({
-            apiKey: formattedKey,
+            apiKey: apiKey,
             maxRetries: SlideGenerationService.MAX_RETRIES,
             timeout: SlideGenerationService.TIMEOUT
         });
@@ -110,31 +94,19 @@ export class SlideGenerationService {
         console.log('OpenAI Client Initialized:', {
             maxRetries: SlideGenerationService.MAX_RETRIES,
             timeout: SlideGenerationService.TIMEOUT,
-            keyFormat: {
-                prefix: formattedKey.substring(0, 7),
-                length: formattedKey.length,
-                wasConverted: formattedKey !== apiKey
-            },
             timestamp: new Date().toISOString()
         });
     } catch (error) {
         console.error('OpenAI Client Initialization Error:', {
             error: error instanceof Error ? {
                 message: error.message,
-                name: error.name,
-                stack: error.stack
+                name: error.name
             } : 'Unknown error',
-            keyDetails: {
-                originalLength: apiKey?.length,
-                originalPrefix: apiKey?.substring(0, 7),
-                originalFormat: apiKey?.startsWith('sk-') ? 'standard' : 'non-standard'
-            },
             timestamp: new Date().toISOString()
         });
-        throw new Error('Failed to initialize OpenAI client: ' + (error instanceof Error ? error.message : 'Unknown error'));
+        throw error;
     }
     
-    // Remove model capability testing from constructor
     this.modelCapabilities = new Map([
         ['gpt-3.5-turbo-basic', true],
         ['gpt-4-basic', true],
