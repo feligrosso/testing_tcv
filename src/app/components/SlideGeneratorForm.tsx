@@ -40,45 +40,6 @@ interface SlideContent {
   source: string;
 }
 
-const MAX_RETRIES = 3;
-const INITIAL_RETRY_DELAY = 1000;
-const MAX_RETRY_DELAY = 10000;
-
-async function fetchWithRetry(url: string, options: RequestInit, retries = MAX_RETRIES): Promise<Response> {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const response = await fetch(url, options);
-      
-      // Don't retry if quota exceeded or invalid API key
-      if (response.status === 429 || response.status === 401) {
-        return response;
-      }
-      
-      if (response.ok) {
-        return response;
-      }
-
-      // If we get here, it's a retryable error
-      console.log(`Attempt ${i + 1} failed, retrying...`);
-    } catch (error) {
-      if (i === retries - 1) throw error;
-      
-      // Only retry on network errors
-      if (error instanceof Error && 
-         (error.message.includes('Failed to fetch') || 
-          error.message.includes('NetworkError') ||
-          error.message.includes('network timeout'))) {
-        const delay = Math.min(INITIAL_RETRY_DELAY * Math.pow(2, i), MAX_RETRY_DELAY);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        continue;
-      }
-      
-      throw error;
-    }
-  }
-  throw new Error('Max retries reached');
-}
-
 export default function SlideGeneratorForm() {
   const [mounted, setMounted] = useState(false);
   const [formData, setFormData] = useState<FormData>({
@@ -175,7 +136,7 @@ export default function SlideGeneratorForm() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-      const response = await fetchWithRetry('/api/generate-slides', {
+      const response = await fetch('/api/generate-slides', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -243,9 +204,6 @@ export default function SlideGeneratorForm() {
                   error.message.includes('Failed to fetch') || 
                   error.message.includes('NetworkError')) {
           errorMessage = 'Network connection issue. Please check your internet and try again.';
-          errorType = 'warning';
-        } else if (error.message.includes('Max retries reached')) {
-          errorMessage = 'Unable to complete the request after multiple attempts. Please try again later.';
           errorType = 'warning';
         } else {
           errorMessage = error.message;

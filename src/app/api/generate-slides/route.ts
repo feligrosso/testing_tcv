@@ -33,7 +33,7 @@ export const config = {
 };
 
 // Add timeout handling
-const TIMEOUT_DURATION = 45000; // 45 seconds to allow for cleanup
+const TIMEOUT_DURATION = 25000; // 25 seconds to allow for cleanup and response handling
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   const timeout = new Promise<T>((_, reject) => {
