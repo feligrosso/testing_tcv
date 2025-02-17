@@ -40,6 +40,45 @@ interface SlideContent {
   source: string;
 }
 
+const MAX_RETRIES = 3;
+const INITIAL_RETRY_DELAY = 1000;
+const MAX_RETRY_DELAY = 10000;
+
+async function fetchWithRetry(url: string, options: RequestInit, retries = MAX_RETRIES): Promise<Response> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url, options);
+      
+      // Don't retry if quota exceeded or invalid API key
+      if (response.status === 429 || response.status === 401) {
+        return response;
+      }
+      
+      if (response.ok) {
+        return response;
+      }
+
+      // If we get here, it's a retryable error
+      console.log(`Attempt ${i + 1} failed, retrying...`);
+    } catch (error) {
+      if (i === retries - 1) throw error;
+      
+      // Only retry on network errors
+      if (error instanceof Error && 
+         (error.message.includes('Failed to fetch') || 
+          error.message.includes('NetworkError') ||
+          error.message.includes('network timeout'))) {
+        const delay = Math.min(INITIAL_RETRY_DELAY * Math.pow(2, i), MAX_RETRY_DELAY);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      throw error;
+    }
+  }
+  throw new Error('Max retries reached');
+}
+
 export default function SlideGeneratorForm() {
   const [mounted, setMounted] = useState(false);
   const [formData, setFormData] = useState<FormData>({
@@ -136,7 +175,7 @@ export default function SlideGeneratorForm() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-      const response = await fetch('/api/generate-slides', {
+      const response = await fetchWithRetry('/api/generate-slides', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -153,15 +192,35 @@ export default function SlideGeneratorForm() {
         let errorMessage = data.message || 'Failed to generate slide';
         let errorType: FormError['type'] = data.errorType || 'error';
 
-        if (response.status === 429) {
-          errorType = 'warning';
-          errorMessage = 'The service is currently at capacity. Please wait a few moments and try again.';
-        } else if (response.status === 401) {
-          errorType = 'error';
-          errorMessage = 'Service configuration error. Please contact support.';
-        } else if (response.status === 408) {
-          errorType = 'warning';
-          errorMessage = 'The request took too long. Please try again with simpler data.';
+        // Handle specific error cases
+        switch (response.status) {
+          case 429:
+            errorType = 'error';
+            errorMessage = 'API usage limit reached. Please try again in a few minutes or contact support.';
+            break;
+          case 401:
+            errorType = 'error';
+            errorMessage = 'Service configuration error. Please contact support.';
+            break;
+          case 408:
+          case 504:
+            errorType = 'warning';
+            errorMessage = 'The request took too long. Please try again with simpler data.';
+            break;
+          case 503:
+            errorType = 'warning';
+            errorMessage = 'Service is temporarily unavailable. Please try again in a few moments.';
+            break;
+          case 206:
+            errorType = 'warning';
+            errorMessage = 'Some content was recovered but may be incomplete. Consider trying again.';
+            setSlideContent(data);
+            break;
+          default:
+            if (data.message?.includes('network')) {
+              errorType = 'warning';
+              errorMessage = 'Network connection issue. Please check your internet and try again.';
+            }
         }
 
         throw new Error(errorMessage);
@@ -180,12 +239,16 @@ export default function SlideGeneratorForm() {
         if (error.name === 'AbortError') {
           errorMessage = 'The request took too long. Please try again with simpler data.';
           errorType = 'warning';
-        } else if (error.message.includes('Failed to fetch')) {
-          errorMessage = 'Network error. Please check your connection and try again.';
+        } else if (error.message.includes('network') || 
+                  error.message.includes('Failed to fetch') || 
+                  error.message.includes('NetworkError')) {
+          errorMessage = 'Network connection issue. Please check your internet and try again.';
+          errorType = 'warning';
+        } else if (error.message.includes('Max retries reached')) {
+          errorMessage = 'Unable to complete the request after multiple attempts. Please try again later.';
           errorType = 'warning';
         } else {
           errorMessage = error.message;
-          // Keep the errorType from the server if it exists
           errorType = (error as any).errorType || errorType;
         }
       }

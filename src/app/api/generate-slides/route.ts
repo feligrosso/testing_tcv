@@ -1,66 +1,36 @@
 import { NextResponse } from "next/server";
-import OpenAI from 'openai';
+import { slideGenerationService } from '@/app/lib/services/SlideGenerationService';
 
-interface SlideRequest {
-  title?: string;
-  rawData: string;
-  soWhat?: string;
-  source?: string;
-}
+export const maxDuration = 300; // 5 minutes timeout
+export const dynamic = 'force-dynamic'; // Disable static generation for edge runtime
 
-interface SlideContent {
-  title: string;
-  subtitle?: string;
-  visualType: string;
-  keyPoints: string[];
-  source: string;
-}
-
-interface ErrorResponse {
-  error: true;
-  message: string;
-  title: string;
-  subtitle: string;
-  visualType: string;
-  keyPoints: string[];
-  source: string;
-}
-
-// Validate environment variables at startup
-const validateEnv = () => {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('OpenAI API key not configured. Please add OPENAI_API_KEY to your .env.local file');
+// Validate environment variables
+function validateEnv() {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('Missing required environment variable: OPENAI_API_KEY');
   }
-  
-  // Validate API key format
-  if (!apiKey.startsWith('sk-')) {
-    throw new Error('Invalid OpenAI API key format. The key should start with "sk-"');
-  }
-  
-  // Only return a substring for logging - never log the full key
-  return `${apiKey.substring(0, 3)}...${apiKey.substring(apiKey.length - 3)}`;
-};
-
-function preprocessData(rawData: string): string {
-  const lines = rawData.split('\n')
-    .filter(line => line.trim())
-    .slice(0, 8);
-  return lines.map(line => line.slice(0, 100)).join('\n');
 }
 
 export async function POST(req: Request) {
   try {
-    // Initialize OpenAI with validated key
-    const apiKeyPreview = validateEnv();
-    console.log('Using OpenAI API key:', apiKeyPreview);
+    // Validate environment variables first
+    try {
+      validateEnv();
+    } catch (error: any) {
+      console.error('Environment validation error:', error);
+      return NextResponse.json({
+        error: true,
+        message: 'Service configuration error. Please contact support.',
+        errorType: 'error',
+        title: 'Configuration Error',
+        subtitle: 'Service Misconfigured',
+        visualType: 'Bar Chart',
+        keyPoints: ['The service is not properly configured', 'Our team has been notified'],
+        source: 'System Message'
+      }, { status: 503 });
+    }
 
-    const openai = new OpenAI({ 
-      apiKey: process.env.OPENAI_API_KEY,
-      maxRetries: 2, // Reduce retries to fail faster
-      timeout: 30000,
-    });
-
+    // Parse request data
     let reqData;
     try {
       reqData = await req.json();
@@ -77,7 +47,16 @@ export async function POST(req: Request) {
       }, { status: 400 });
     }
 
-    const { title, rawData, soWhat, source }: SlideRequest = reqData;
+    const { 
+      title, 
+      rawData, 
+      soWhat, 
+      source,
+      audience,
+      style,
+      focusArea,
+      dataContext 
+    } = reqData;
     
     if (!rawData) {
       return NextResponse.json({
@@ -92,169 +71,106 @@ export async function POST(req: Request) {
       }, { status: 400 });
     }
 
-    const processedData = preprocessData(rawData);
-    
-    const systemPrompt = `You are an expert management consultant specializing in creating impactful presentation slides. Your task is to analyze data and generate slide content that follows these principles:
-
-1. Titles should be action-oriented and highlight the key message (e.g., "Increasing Market Share by 25% Through Digital Transformation")
-2. Key points should be specific, data-driven, and follow the "What, So What, Now What" framework
-3. Each key point must include actual numbers/metrics from the data
-4. Visualization recommendations should match the story being told (e.g., bar charts for comparisons, line charts for trends)
-
-Return the content in this exact JSON format:
-{
-  "title": "Action-oriented title that captures main insight",
-  "subtitle": "Supporting context or timeframe",
-  "visualType": "Specific chart type (Bar Chart, Line Chart, etc.)",
-  "keyPoints": [
-    "Point 1 with specific numbers and business impact",
-    "Point 2 with specific numbers and business impact",
-    "Point 3 with specific numbers and business impact"
-  ],
-  "source": "Data source attribution"
-}`;
-    
-    const userPrompt = `Create a consulting-style slide analyzing this data. The slide should tell a compelling story and lead to clear business recommendations.
-
-Title Context: "${title || 'Generate an insight-driven title'}"
-Source: "${source || 'Internal Analysis'}"
-Additional Context: "${soWhat || ''}"
-
-Data to analyze:
-${processedData}
-
-Requirements:
-1. Title must be action-oriented and highlight the key business impact
-2. Key points should flow logically and build up to a clear recommendation
-3. Include specific numbers from the data in each key point
-4. Recommend a visualization type that best shows the key message
-5. Keep the output in the exact JSON format specified`;
-
-    console.log('Starting OpenAI request...');
-    
-    try {
-      const response = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
+    // Validate data size
+    const dataSize = new TextEncoder().encode(rawData).length;
+    const maxSize = 100000; // 100KB limit
+    if (dataSize > maxSize) {
+      return NextResponse.json({
+        error: true,
+        message: 'Data size exceeds limit. Please reduce the amount of data.',
+        errorType: 'warning',
+        title: title || 'Data Size Error',
+        subtitle: 'Excessive Data',
+        visualType: 'Bar Chart',
+        keyPoints: [
+          'The provided data exceeds the size limit',
+          'Please reduce the data to less than 100KB',
+          'Consider summarizing or sampling your data'
         ],
-        temperature: 0.7,
-        max_tokens: 1000,
-        response_format: { type: "json_object" }
+        source: source || 'System Message'
+      }, { status: 413 });
+    }
+
+    try {
+      const result = await slideGenerationService.generateSlide({
+        title,
+        rawData,
+        soWhat,
+        source,
+        audience,
+        style,
+        focusArea,
+        dataContext
       });
 
-      const content = response.choices[0].message.content;
-      if (!content) {
-        throw new Error('Empty response from OpenAI');
+      return NextResponse.json(result);
+    } catch (error: any) {
+      console.error('Slide generation error:', error);
+
+      let status = error.status || 500;
+      let message = error.message || 'An unexpected error occurred';
+      let errorType = 'error';
+
+      // Handle specific error types
+      if (error.code === 'insufficient_quota') {
+        status = 429;
+        message = 'API quota exceeded. Please try again later.';
+        errorType = 'warning';
+      } else if (error.code === 'context_length_exceeded') {
+        status = 400;
+        message = 'Input data is too long. Please provide a shorter dataset.';
+        errorType = 'warning';
+      } else if (error.name === 'AbortError' || error.code === 'ETIMEDOUT') {
+        status = 408;
+        message = 'The request took too long. Please try again with simpler data.';
+        errorType = 'warning';
+      } else if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+        status = 503;
+        message = 'Service is temporarily unavailable. Please try again in a few moments.';
+        errorType = 'warning';
       }
 
-      let slideContent;
-      try {
-        slideContent = JSON.parse(content.trim());
-      } catch (parseError) {
-        console.error('JSON Parse Error:', parseError, 'Content:', content);
-        return NextResponse.json({
-          error: true,
-          message: 'Failed to parse AI response',
-          errorType: 'error',
-          title: title || 'Analysis Error',
-          subtitle: 'Invalid Response Format',
-          visualType: 'Bar Chart',
-          keyPoints: [
-            'The AI response was not in the correct format',
-            'Please try again with simpler data',
-            'If the problem persists, contact support'
-          ],
-          source: source || 'System Message'
-        }, { status: 500 });
-      }
-
-      // Clean and validate response
-      const cleanedContent = {
-        error: false,
-        message: 'Success',
-        title: slideContent.title?.trim() || title || 'Data Analysis',
-        subtitle: slideContent.subtitle?.trim() || soWhat || 'Key Insights',
-        visualType: slideContent.visualType || 'Bar Chart',
-        keyPoints: (slideContent.keyPoints || [])
-          .filter((point: string) => point && typeof point === 'string')
-          .map((point: string) => point.trim())
-          .slice(0, 3),
-        source: slideContent.source?.trim() || source || 'Internal Analysis'
-      };
-
-      return NextResponse.json(cleanedContent);
-
-    } catch (openaiError: any) {
-      console.error('OpenAI API Error:', openaiError);
-      
-      if (openaiError.code === 'insufficient_quota') {
-        return NextResponse.json({
-          error: true,
-          message: 'API quota exceeded. Please try again later or contact support to upgrade your plan.',
-          errorType: 'warning',
-          title: 'Service Temporarily Unavailable',
-          subtitle: 'API Limit Reached',
-          visualType: 'Bar Chart',
-          keyPoints: [
-            'The service is currently at capacity',
-            'Please wait a few moments and try again',
-            'If this persists, contact support'
-          ],
-          source: 'System Message'
-        }, { status: 429 });
-      }
-
-      if (openaiError.code === 'invalid_api_key') {
-        return NextResponse.json({
-          error: true,
-          message: 'Invalid API configuration. Please contact support.',
-          errorType: 'error',
-          title: 'Configuration Error',
-          subtitle: 'API Authentication Failed',
-          visualType: 'Bar Chart',
-          keyPoints: [
-            'Unable to authenticate with the AI service',
-            'This is a configuration issue',
-            'Please contact support for assistance'
-          ],
-          source: 'System Message'
-        }, { status: 401 });
-      }
-
-      throw openaiError; // Let the outer catch handle other errors
+      return NextResponse.json({
+        error: true,
+        message,
+        errorType,
+        title: 'Analysis Error',
+        subtitle: message,
+        visualType: 'Bar Chart',
+        keyPoints: [
+          'Unable to analyze data at this time',
+          message,
+          'Please try again with less data or simpler content'
+        ],
+        recommendations: [
+          'Consider breaking down your data into smaller chunks',
+          'Try simplifying your data structure',
+          'Ensure your data is properly formatted'
+        ],
+        source: 'System Message'
+      }, { status });
     }
   } catch (error: any) {
-    console.error('Error generating slide:', error);
-    
-    let status = error.status || 500;
-    let message = error.message || 'An unexpected error occurred';
-    let errorType = 'error';
-    
-    if (error.code === 'context_length_exceeded') {
-      status = 400;
-      message = 'Input data is too long. Please provide a shorter dataset.';
-      errorType = 'warning';
-    } else if (error.name === 'AbortError') {
-      status = 408;
-      message = 'Request timed out. Please try again.';
-      errorType = 'warning';
-    }
+    console.error('Unexpected error:', error);
     
     return NextResponse.json({
       error: true,
-      message,
-      errorType,
-      title: 'Analysis Error',
-      subtitle: message,
+      message: 'An unexpected error occurred',
+      errorType: 'error',
+      title: 'System Error',
+      subtitle: 'Unexpected Error',
       visualType: 'Bar Chart',
       keyPoints: [
-        'Unable to analyze data at this time',
-        message,
-        'Please try again in a few moments'
+        'The system encountered an unexpected error',
+        'Our team has been notified',
+        'Please try again later'
+      ],
+      recommendations: [
+        'Refresh the page and try again',
+        'Check your internet connection',
+        'Contact support if the issue persists'
       ],
       source: 'System Message'
-    }, { status });
+    }, { status: 500 });
   }
 }
