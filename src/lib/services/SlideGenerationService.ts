@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import axios from 'axios';
 import { queueService } from './QueueService';
 import { ChatCompletionMessage, ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat/completions';
 
@@ -62,15 +63,25 @@ interface OperationTiming {
   subOperations?: OperationTiming[];
 }
 
-// Add DeepSeek model configurations
-const MODELS = {
-  REASONING: 'deepseek-coder-33b-instruct',  // Best for complex reasoning
-  FAST: 'deepseek-coder-6.7b-instruct',      // Faster for simpler tasks
-  FALLBACK: 'gpt-4'                          // Fallback if DeepSeek unavailable
+// Model configurations and API endpoints
+const API_CONFIG = {
+  DEEPSEEK: {
+    BASE_URL: 'https://api.deepseek.com/v1',
+    MODELS: {
+      REASONING: 'deepseek-coder-33b-instruct',
+      FAST: 'deepseek-coder-6.7b-instruct'
+    }
+  },
+  OPENAI: {
+    MODELS: {
+      FALLBACK: 'gpt-4'
+    }
+  }
 } as const;
 
 export class SlideGenerationService {
   private openai: OpenAI;
+  private deepseekApiKey: string;
   private static CHUNK_SIZE = 4000;
   private static MAX_RETRIES = 3;
   private static TIMEOUT = 30000;
@@ -79,14 +90,14 @@ export class SlideGenerationService {
   private operationTimings: OperationTiming[] = [];
   private static readonly RETRY_DELAY = 1000;
 
-  constructor(apiKey: string) {
+  constructor(openAiKey: string, deepseekApiKey: string) {
     console.log('Initializing with API key:', {
-        keyLength: apiKey?.length,
-        isProjectKey: apiKey?.startsWith('sk-proj-'),
+        keyLength: openAiKey?.length,
+        isProjectKey: openAiKey?.startsWith('sk-proj-'),
         timestamp: new Date().toISOString()
     });
 
-    if (!apiKey) {
+    if (!openAiKey) {
         console.error('API Key Missing in Service Constructor');
         throw new Error('OpenAI API key is required to initialize the service');
     }
@@ -94,7 +105,7 @@ export class SlideGenerationService {
     try {
         // Initialize OpenAI client with project-scoped key support
         this.openai = new OpenAI({
-            apiKey: apiKey,
+            apiKey: openAiKey,
             maxRetries: SlideGenerationService.MAX_RETRIES,
             timeout: SlideGenerationService.TIMEOUT,
             defaultHeaders: {
@@ -105,7 +116,7 @@ export class SlideGenerationService {
         console.log('OpenAI Client Initialized:', {
             maxRetries: SlideGenerationService.MAX_RETRIES,
             timeout: SlideGenerationService.TIMEOUT,
-            isProjectKey: apiKey.startsWith('sk-proj-'),
+            isProjectKey: openAiKey.startsWith('sk-proj-'),
             timestamp: new Date().toISOString()
         });
     } catch (error) {
@@ -124,6 +135,8 @@ export class SlideGenerationService {
         ['gpt-4-basic', true],
         ['gpt-3.5-turbo-16k-basic', true]
     ]);
+
+    this.deepseekApiKey = deepseekApiKey;
   }
 
   private async validateConnection(): Promise<void> {
@@ -560,6 +573,40 @@ export class SlideGenerationService {
     }
   }
 
+  private async callDeepSeekApi(messages: Array<{ role: string; content: string }>, options: {
+    temperature?: number;
+    max_tokens?: number;
+    model: string;
+  }) {
+    try {
+      const response = await axios.post(
+        `${API_CONFIG.DEEPSEEK.BASE_URL}/chat/completions`,
+        {
+          model: options.model,
+          messages,
+          temperature: options.temperature ?? 0.4,
+          max_tokens: options.max_tokens ?? 1000,
+          stream: false
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${this.deepseekApiKey}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error('DeepSeek API Error:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        model: options.model,
+        timestamp: new Date().toISOString()
+      });
+      throw error;
+    }
+  }
+
   private async generateActionTitle(data: DataSummary, framework: ConsultingFramework): Promise<ActionTitle> {
     const timing = this.startTiming('generateActionTitle');
     
@@ -624,48 +671,44 @@ Think through your reasoning step by step, then output a JSON response with thes
     "businessImplication": "Clear, actionable strategic implication"
 }`;
 
-        // Try DeepSeek first, fall back to GPT-4 if needed
+        // Try DeepSeek first
         try {
-            const response = await this.executeWithRetry(() =>
-                this.openai.chat.completions.create({
-                    model: MODELS.REASONING,
-                    messages: [
-                        {
-                            role: 'system',
-                            content: 'You are a McKinsey-trained management consultant with exceptional analytical and strategic reasoning capabilities. Your expertise is in transforming data into actionable strategic insights.'
-                        },
-                        {
-                            role: 'user',
-                            content: prompt
-                        }
-                    ],
-                    temperature: 0.4, // Lower temperature for more focused reasoning
-                    max_tokens: 1000,
-                    top_p: 0.95,
-                    frequency_penalty: 0.1,
-                    presence_penalty: 0.1
-                })
-            );
+            const messages = [
+                {
+                    role: 'system',
+                    content: 'You are a McKinsey-trained management consultant with exceptional analytical and strategic reasoning capabilities. Your expertise is in transforming data into actionable strategic insights.'
+                },
+                {
+                    role: 'user',
+                    content: prompt
+                }
+            ];
 
-            const content = response.choices[0]?.message?.content;
-            if (!content) {
-                throw new Error('Failed to generate action title with DeepSeek');
+            const response = await this.callDeepSeekApi(messages, {
+                model: API_CONFIG.DEEPSEEK.MODELS.REASONING,
+                temperature: 0.4,
+                max_tokens: 1000
+            });
+
+            if (!response.choices?.[0]?.message?.content) {
+                throw new Error('Invalid DeepSeek response format');
             }
 
-            const result = this.safeJsonParse(content, {
+            const result = this.safeJsonParse(response.choices[0].message.content, {
                 reasoning: [],
                 title: 'Data Analysis Results',
                 supportingData: [],
                 businessImplication: 'Further analysis needed'
             });
 
-            // Log the reasoning steps for debugging
-            console.log('DeepSeek Reasoning Steps:', {
-                steps: result.reasoning,
+            // Log DeepSeek's reasoning steps
+            console.log('DeepSeek Analysis:', {
+                model: API_CONFIG.DEEPSEEK.MODELS.REASONING,
+                reasoning: result.reasoning,
                 timestamp: new Date().toISOString()
             });
 
-            // Enhanced validation with reasoning check
+            // Enhanced validation
             await this.validateActionTitleReasoning(result);
 
             this.endTiming(timing);
@@ -683,7 +726,7 @@ Think through your reasoning step by step, then output a JSON response with thes
             // Fallback to GPT-4
             const fallbackResponse = await this.executeWithRetry(() =>
                 this.openai.chat.completions.create({
-                    model: MODELS.FALLBACK,
+                    model: API_CONFIG.OPENAI.MODELS.FALLBACK,
                     messages: [
                         {
                             role: 'system',
@@ -1128,6 +1171,6 @@ Return JSON: {
   }
 }
 
-export const createSlideGenerationService = (apiKey: string) => {
-  return new SlideGenerationService(apiKey);
+export const createSlideGenerationService = (openAiKey: string, deepseekApiKey: string) => {
+  return new SlideGenerationService(openAiKey, deepseekApiKey);
 }; 
