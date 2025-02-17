@@ -33,35 +33,34 @@ export const config = {
   },
 };
 
-// Add timeout handling
-const TIMEOUT_DURATION = 25000; // 25 seconds to allow for cleanup and response handling
-
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  const timeout = new Promise<T>((_, reject) => {
-    setTimeout(() => {
-      reject(new Error('Operation timed out'));
-    }, timeoutMs);
-  });
-
-  return Promise.race([promise, timeout]);
-}
-
 // Validate environment variables
 function validateEnv() {
   const apiKey = process.env.OPENAI_API_KEY;
   
   console.log('Environment Check:', {
     hasApiKey: !!apiKey,
-    runtime: runtime,
-    region: preferredRegion,
+    nodeEnv: process.env.NODE_ENV,
     timestamp: new Date().toISOString()
   });
 
   if (!apiKey) {
-    throw new Error('OpenAI API key is not configured. Please check your environment variables.');
+    throw new Error('OpenAI API key is not configured');
   }
 
   return apiKey;
+}
+
+// Add timeout handling with improved error messages
+const TIMEOUT_DURATION = 25000; // 25 seconds to allow for cleanup and response handling
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  const timeout = new Promise<T>((_, reject) => {
+    setTimeout(() => {
+      reject(new Error(`Operation timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeout]);
 }
 
 export async function POST(req: Request) {
@@ -242,8 +241,13 @@ export async function POST(req: Request) {
         errorType = 'warning';
       } else if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
         status = 503;
-        message = 'Service is temporarily unavailable. Please try again in a few moments.';
+        message = 'Unable to connect to OpenAI API. Please try again in a few moments.';
         errorType = 'warning';
+        console.error('Connection error:', {
+          code: error.code,
+          message: error.message,
+          timestamp: new Date().toISOString()
+        });
       }
 
       return NextResponse.json({
@@ -254,17 +258,22 @@ export async function POST(req: Request) {
         subtitle: message,
         visualType: 'Bar Chart',
         keyPoints: [
-          'Unable to analyze data at this time',
-          message,
-          'Please try again with less data or simpler content'
+          'The service is experiencing temporary connectivity issues',
+          'Our system will automatically retry your request',
+          'Please try again in a few moments'
         ],
         recommendations: [
-          'Consider breaking down your data into smaller chunks',
-          'Try simplifying your data structure',
-          'Ensure your data is properly formatted'
+          'Wait a few moments before trying again',
+          'Check if there are any known OpenAI API issues',
+          'Contact support if the issue persists'
         ],
         source: 'System Message'
-      }, { status });
+      }, { 
+        status,
+        headers: {
+          'Cache-Control': 'no-store, must-revalidate'
+        }
+      });
     }
   } catch (error: any) {
     endOperation('total_request');
