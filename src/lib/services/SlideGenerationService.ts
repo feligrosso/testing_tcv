@@ -64,50 +64,44 @@ interface OperationTiming {
 
 export class SlideGenerationService {
   private openai: OpenAI;
-  private static CHUNK_SIZE = 2000;
+  private static CHUNK_SIZE = 4000;
   private static MAX_RETRIES = 3;
   private static TIMEOUT = 30000;
   private static DEFAULT_MODEL = 'gpt-3.5-turbo';
   private modelCapabilities: Map<string, boolean> | null = null;
   private operationTimings: OperationTiming[] = [];
+  private static readonly RETRY_DELAY = 1000;
 
   constructor(apiKey: string) {
+    console.log('Initializing SlideGenerationService:', {
+      hasApiKey: !!apiKey,
+      apiKeyLength: apiKey?.length,
+      timestamp: new Date().toISOString()
+    });
+
     if (!apiKey) {
-      throw new Error('OpenAI API key is required');
+      console.error('API Key Missing in Service Constructor');
+      throw new Error('OpenAI API key is required to initialize the service');
     }
 
-    console.log('Initializing OpenAI Client:', {
-      timestamp: new Date().toISOString(),
-      apiKeyLength: apiKey.length,
-      apiKeyPrefix: apiKey.substring(0, 7),
-      hasModelCapabilities: !!this.modelCapabilities
-    });
-
     try {
-    this.openai = new OpenAI({ 
+      this.openai = new OpenAI({
         apiKey: apiKey,
-      maxRetries: 0,
-      timeout: SlideGenerationService.TIMEOUT,
-    });
-    
-      // Validate connection immediately
-      this.validateConnection().catch(error => {
-        console.error('OpenAI Connection Validation Failed:', {
-          error: error.message,
-          code: error.code,
-          type: error.type,
-          timestamp: new Date().toISOString()
-        });
+        maxRetries: SlideGenerationService.MAX_RETRIES,
+        timeout: SlideGenerationService.TIMEOUT
       });
 
-    } catch (error: any) {
-      console.error('OpenAI Client Initialization Error:', {
-        error: error.message,
-        code: error.code,
-        type: error.type,
+      console.log('OpenAI Client Initialized:', {
+        maxRetries: SlideGenerationService.MAX_RETRIES,
+        timeout: SlideGenerationService.TIMEOUT,
         timestamp: new Date().toISOString()
       });
-      throw new Error(`Failed to initialize OpenAI client: ${error.message}`);
+    } catch (error) {
+      console.error('OpenAI Client Initialization Error:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+      throw new Error('Failed to initialize OpenAI client: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
     
     // Remove model capability testing from constructor
@@ -120,31 +114,16 @@ export class SlideGenerationService {
 
   private async validateConnection(): Promise<void> {
     try {
-      console.log('Validating OpenAI Connection...', {
-        timestamp: new Date().toISOString()
-      });
-
-      const startTime = Date.now();
-      
-      // Make a minimal API call to validate connection
+      // Simple test call to validate the API key
       await this.openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         messages: [{ role: 'user', content: 'test' }],
-        max_tokens: 1
+        max_tokens: 5
       });
-
-      const duration = Date.now() - startTime;
-      
-      console.log('OpenAI Connection Validated:', {
-        durationMs: duration,
-        timestamp: new Date().toISOString()
-      });
-    } catch (error: any) {
-      console.error('OpenAI Connection Test Failed:', {
-        error: error.message,
-        code: error.code,
-        type: error.type,
-        status: error.status,
+      console.log('OpenAI Connection Validated Successfully');
+    } catch (error) {
+      console.error('OpenAI Connection Validation Failed:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date().toISOString()
       });
       throw error;
@@ -178,7 +157,7 @@ export class SlideGenerationService {
           (error.code === 'ECONNREFUSED' || 
            error.code === 'ENOTFOUND' || 
            error.status === 503)) {
-        const delay = Math.min(1000 * Math.pow(2, retryCount), 5000);
+        const delay = Math.min(SlideGenerationService.RETRY_DELAY * Math.pow(2, retryCount), 5000);
         await new Promise(resolve => setTimeout(resolve, delay));
         return this.executeWithRetry(operation, retryCount + 1);
       }
