@@ -10,26 +10,49 @@ console.log('Route Module Environment:', {
   timestamp: new Date().toISOString()
 });
 
-// Configure for optimized Node.js runtime with explicit settings
+// Configure for Edge Runtime
 export const runtime = 'edge';
 export const preferredRegion = 'iad1';
-export const dynamic = 'force-dynamic';
 
-// Remove maxDuration as it's not needed for edge runtime
-export const config = {
-  api: {
-    responseLimit: false,
-    bodyParser: {
-      sizeLimit: '10mb',
+// Add specific response size monitoring
+const MAX_RESPONSE_SIZE = 1.5 * 1024 * 1024; // 1.5MB limit for edge functions
+
+// Add response streaming with size checks
+async function createStreamingResponse(data: any) {
+  const jsonString = JSON.stringify(data);
+  const size = new TextEncoder().encode(jsonString).length;
+  
+  console.log('Response Size Check:', {
+    size,
+    maxSize: MAX_RESPONSE_SIZE,
+    exceedsLimit: size > MAX_RESPONSE_SIZE,
+    timestamp: new Date().toISOString()
+  });
+
+  if (size > MAX_RESPONSE_SIZE) {
+    throw new Error(`Response size (${size} bytes) exceeds Edge function limit (${MAX_RESPONSE_SIZE} bytes)`);
+  }
+
+  // Use streaming response for better edge compatibility
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(jsonString));
+      controller.close();
     },
-  },
-  cache: 'no-store'
-};
+  });
+
+  return new NextResponse(stream, {
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store, must-revalidate',
+      'x-response-size': size.toString(),
+    },
+  });
+}
 
 // Enhanced diagnostic logging with production checks
 console.log('Route Module Configuration:', {
   runtime,
-  dynamic,
   preferredRegion,
   timestamp: new Date().toISOString(),
   environment: process.env.NODE_ENV,
@@ -191,136 +214,73 @@ const createErrorResponse = (message: string, status: number, type: 'error' | 'w
 };
 
 export async function POST(req: Request) {
-  console.log('Request Started:', {
+  console.log('Edge Function Request:', {
     url: req.url,
     method: req.method,
     headers: Object.fromEntries(req.headers.entries()),
-    runtime: runtime,
     timestamp: new Date().toISOString()
   });
 
-  startOperation('total_request');
-  
   try {
-    // Parse request with error handling
-    let reqData;
-    try {
-      const rawBody = await req.text();
-      console.log('Raw Request Body:', {
-        length: rawBody.length,
-        preview: rawBody.slice(0, 100) + '...',
-        timestamp: new Date().toISOString()
-      });
-      
-      reqData = JSON.parse(rawBody);
-    } catch (error) {
-      console.error('Request Parsing Error:', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        timestamp: new Date().toISOString()
-      });
-      return createErrorResponse('Invalid JSON in request body', 400, 'error');
-    }
-
-    // Validate environment variables first
-    let apiKey: string;
-    startOperation('env_validation');
-    try {
-      apiKey = validateEnv();
-      console.log('Environment validated successfully');
-      endOperation('env_validation');
-    } catch (error: any) {
-      endOperation('env_validation');
-      console.error('Environment validation error:', {
-        error: error.message,
-        timestamp: new Date().toISOString()
-      });
-      return createErrorResponse('Configuration Error: OpenAI API key is missing or invalid', 503, 'error');
-    }
-
-    // Initialize slide generation service with validated API key
-    startOperation('service_init');
-    const slideService = createSlideGenerationService(apiKey);
-    endOperation('service_init');
-
-    const { 
-      title, 
-      rawData, 
-      soWhat, 
-      source,
-      audience,
-      style,
-      focusArea,
-      dataContext 
-    } = reqData;
+    // Parse request with size validation
+    const rawBody = await req.text();
+    const bodySize = new TextEncoder().encode(rawBody).length;
     
-    if (!rawData) {
-      return createErrorResponse('No data provided for analysis', 400, 'error');
+    console.log('Request Size Check:', {
+      size: bodySize,
+      timestamp: new Date().toISOString()
+    });
+
+    if (bodySize > MAX_RESPONSE_SIZE) {
+      return NextResponse.json({
+        error: true,
+        message: 'Request payload too large for Edge function',
+        size: bodySize,
+        limit: MAX_RESPONSE_SIZE
+      }, { status: 413 });
     }
 
-    // Validate data size
-    const dataSize = new TextEncoder().encode(rawData).length;
-    const maxSize = 100000; // 100KB limit
-    if (dataSize > maxSize) {
-      return createErrorResponse('Data size exceeds limit. Please reduce the amount of data.', 413, 'warning');
+    const reqData = JSON.parse(rawBody);
+    
+    // Validate OpenAI API key in Edge context
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      console.error('API Key Missing in Edge Runtime');
+      return NextResponse.json({
+        error: true,
+        message: 'OpenAI API key not configured in Edge environment',
+        runtime: 'edge'
+      }, { status: 500 });
     }
 
-    try {
-      const result = await slideService.generateSlide({
-        title,
-        rawData,
-        soWhat,
-        source,
-        audience,
-        style,
-        focusArea,
-        dataContext
-      });
+    // Initialize service
+    const slideService = createSlideGenerationService(apiKey);
 
-      // Before returning success response
-      const successResponse = NextResponse.json(result, { headers: responseHeaders });
-      console.log('Success Response:', {
-        status: successResponse.status,
-        headers: Object.fromEntries(successResponse.headers.entries()),
-        resultPreview: JSON.stringify(result).slice(0, 100) + '...',
-        timestamp: new Date().toISOString()
-      });
-      
-      return logResponse(successResponse);
+    const result = await slideService.generateSlide({
+      title: reqData.title,
+      rawData: reqData.rawData,
+      soWhat: reqData.soWhat,
+      source: reqData.source,
+      audience: reqData.audience,
+      style: reqData.style,
+      focusArea: reqData.focusArea,
+      dataContext: reqData.dataContext
+    });
 
-    } catch (error: any) {
-      console.error('Slide generation error:', {
-        error: error.message,
-        stack: error.stack,
-        timestamp: new Date().toISOString()
-      });
+    // Stream the response with size validation
+    return await createStreamingResponse(result);
 
-      if (error.message === 'Operation timed out' || error.name === 'AbortError') {
-        return createErrorResponse('The request took too long to process', 408, 'warning');
-      }
-
-      let status = error.status || 500;
-      let message = error.message || 'An unexpected error occurred';
-      let errorType: 'error' | 'warning' = 'error';
-
-      if (error.code === 'insufficient_quota') {
-        status = 429;
-        message = 'API quota exceeded. Please try again later.';
-        errorType = 'warning';
-      } else if (error.code === 'context_length_exceeded') {
-        status = 400;
-        message = 'Input data is too long. Please provide a shorter dataset.';
-        errorType = 'warning';
-      }
-
-      return createErrorResponse(message, status, errorType);
-    }
   } catch (error: any) {
-    console.error('Unexpected error:', {
-      error: error.message,
+    console.error('Edge Function Error:', {
+      message: error.message,
       stack: error.stack,
       timestamp: new Date().toISOString()
     });
-    
-    return createErrorResponse('An unexpected error occurred', 500, 'error');
+
+    return NextResponse.json({
+      error: true,
+      message: error.message || 'An error occurred in Edge function',
+      runtime: 'edge'
+    }, { status: 500 });
   }
 }
