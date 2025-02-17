@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { createSlideGenerationService } from '@/lib/services/SlideGenerationService';
 
-// Configure for Node.js runtime instead of Edge
+// Configure for optimized Node.js runtime
 export const runtime = 'nodejs';
-export const maxDuration = 60; // Adjusted to Vercel Hobby plan limit
+export const preferredRegion = 'iad1';  // Washington DC for lowest latency
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 // Add performance tracking
 const performanceMetrics: { [key: string]: number } = {};
@@ -48,28 +49,16 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
 // Validate environment variables
 function validateEnv() {
   const apiKey = process.env.OPENAI_API_KEY;
-  const environment = process.env.NODE_ENV || 'unknown';
-  const vercelEnv = process.env.VERCEL_ENV || 'not_vercel';
   
   console.log('Environment Check:', {
     hasApiKey: !!apiKey,
-    nodeEnv: environment,
-    vercelEnv: vercelEnv,
+    runtime: runtime,
+    region: preferredRegion,
     timestamp: new Date().toISOString()
   });
 
   if (!apiKey) {
-    const error = new Error('OpenAI API key is required');
-    console.error('Environment Error:', {
-      error: error.message,
-      environment: environment,
-      vercelEnv: vercelEnv,
-      availableEnvVars: Object.keys(process.env)
-        .filter(key => !key.toLowerCase().includes('key') && !key.toLowerCase().includes('secret'))
-        .join(', '),
-      timestamp: new Date().toISOString()
-    });
-    throw error;
+    throw new Error('OpenAI API key is not configured. Please check your environment variables.');
   }
 
   return apiKey;
@@ -77,15 +66,9 @@ function validateEnv() {
 
 export async function POST(req: Request) {
   startOperation('total_request');
-  const abortController = new AbortController();
   
-  // Set timeout to cleanup before Vercel's 60s limit
-  setTimeout(() => {
-    abortController.abort();
-  }, TIMEOUT_DURATION);
-
   try {
-    // Validate environment variables first with enhanced logging
+    // Validate environment variables first
     let apiKey: string;
     startOperation('env_validation');
     try {
@@ -98,20 +81,24 @@ export async function POST(req: Request) {
         error: error.message,
         timestamp: new Date().toISOString()
       });
-      return NextResponse.json({
+      return new Response(JSON.stringify({
         error: true,
-        message: 'Service configuration error: The OpenAI API key is not properly configured in the environment. Please check the deployment settings.',
+        message: 'Configuration Error: OpenAI API key is missing or invalid',
         errorType: 'error',
-        title: 'Configuration Error',
-        subtitle: 'Service Misconfigured',
-        visualType: 'Bar Chart',
+        title: 'Service Unavailable',
+        subtitle: 'Configuration Error',
         keyPoints: [
           'The service is not properly configured',
-          'Environment variables are missing or invalid',
-          'Please check the deployment settings in Vercel'
-        ],
-        source: 'System Message'
-      }, { status: 503 });
+          'OpenAI API key is missing or invalid',
+          'Please check the environment variables in Vercel'
+        ]
+      }), { 
+        status: 503,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store, must-revalidate'
+        }
+      });
     }
 
     // Initialize slide generation service with validated API key
