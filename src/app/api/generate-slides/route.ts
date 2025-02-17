@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { slideGenerationService } from '@/app/lib/services/SlideGenerationService';
+import { slideGenerationService } from '@/lib/services/SlideGenerationService';
 
 export const maxDuration = 300; // 5 minutes timeout
 export const dynamic = 'force-dynamic'; // Disable static generation for edge runtime

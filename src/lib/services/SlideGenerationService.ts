@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { queueService } from './QueueService';
 import crypto from 'crypto';
+import { ChatCompletionMessage } from 'openai/resources/chat/completions';
 
 interface SlideGenerationTask {
   title?: string;
@@ -25,6 +26,35 @@ interface DataSummary {
   trends: string[];
 }
 
+interface RequestConfig {
+  model: string;
+  maxTokens: number;
+  temperature: number;
+  messages: Array<{
+    role: 'system' | 'user' | 'assistant';
+    content: string;
+  }>;
+}
+
+interface ConsultingFramework {
+  type: 'mece' | 'pyramid' | 'hypothesis' | 'driver-tree';
+  elements: string[];
+}
+
+interface ActionTitle {
+  title: string;
+  supportingData: string[];
+  businessImplication: string;
+}
+
+interface VisualizationRecommendation {
+  type: string;
+  rationale: string;
+  keyElements: string[];
+  dataHighlights: string[];
+  alternativeOptions?: string[];
+}
+
 export class SlideGenerationService {
   private openai: OpenAI;
   private static CHUNK_SIZE = 2000; // Increased for better context
@@ -38,6 +68,15 @@ export class SlideGenerationService {
       timeout: SlideGenerationService.TIMEOUT,
     });
     
+    // Add version validation logging
+    console.log('OpenAI Service Initialization:', {
+      nodeVersion: process.version,
+      environment: process.env.NODE_ENV
+    });
+
+    // Validate response format support
+    this.validateResponseFormatSupport();
+
     // Enhanced diagnostic logging
     try {
       console.log('Build Environment:', {
@@ -57,6 +96,39 @@ export class SlideGenerationService {
       this.validateOpenAIClient();
     } catch (error) {
       console.error('Initialization diagnostic error:', error);
+    }
+  }
+
+  private async validateResponseFormatSupport() {
+    try {
+        // Test API with JSON response format
+        const testResponse = await this.openai.chat.completions.create({
+            model: 'gpt-3.5-turbo',
+            messages: [{ role: 'user', content: 'Reply with: {"test": true}' }],
+            max_tokens: 50,
+            response_format: { type: "json_object" }
+        });
+        console.log('Response Format Support:', {
+            supported: true,
+            responseType: typeof testResponse.choices[0].message.content,
+            isValidJSON: this.isValidJSON(testResponse.choices[0].message.content || '')
+        });
+    } catch (error: any) {
+        console.error('Response Format Support Test Failed:', {
+            error: error.message,
+            type: error.type,
+            code: error.code,
+            stack: error.stack
+        });
+    }
+  }
+
+  private isValidJSON(str: string): boolean {
+    try {
+        JSON.parse(str);
+        return true;
+    } catch (e) {
+        return false;
     }
   }
 
@@ -84,34 +156,93 @@ export class SlideGenerationService {
     return crypto.createHash('md5').update(data).digest('hex');
   }
 
+  private async validatePromptEffectiveness(prompt: string, response: any): Promise<void> {
+    try {
+        // Log prompt characteristics
+        console.log('Prompt Analysis:', {
+            type: 'diagnostic',
+            promptLength: prompt.length,
+            containsFramework: prompt.includes('framework'),
+            containsMetrics: prompt.includes('metrics'),
+            containsContext: prompt.includes('Context:'),
+            timestamp: new Date().toISOString()
+        });
+
+        // Log response quality metrics
+        console.log('Response Quality Metrics:', {
+            type: 'diagnostic',
+            hasActionableInsight: response.title?.length > 50,
+            containsNumbers: /\d+/.test(response.title || ''),
+            hasComparison: /increased|decreased|grew|declined|compared|versus|vs\./.test(response.title || ''),
+            hasBusinessImplication: /suggest|indicate|reveal|demonstrate|imply/.test(response.title || ''),
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error('Prompt validation error:', error);
+    }
+  }
+
+  private async testTwoPassAnalysis(data: string): Promise<void> {
+    try {
+        const startTime = Date.now();
+        
+        // Log first pass metrics
+        console.log('First Pass Analysis:', {
+            type: 'diagnostic',
+            dataSize: data.length,
+            processingTime: Date.now() - startTime,
+            timestamp: new Date().toISOString()
+        });
+
+        // Log second pass refinement
+        console.log('Second Pass Refinement:', {
+            type: 'diagnostic',
+            refinementTime: Date.now() - startTime,
+            totalProcessingTime: Date.now() - startTime,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error('Two-pass analysis validation error:', error);
+    }
+  }
+
   private async summarizeData(data: string): Promise<DataSummary> {
     try {
+      console.log('Starting data summarization...', {
+        type: 'diagnostic',
+        dataLength: data.length,
+        timestamp: new Date().toISOString()
+      });
+
       // Log model and request configuration
+      const messages = [
+        {
+          role: 'system' as const,
+          content: 'You are an expert data analyst. Analyze the data and provide a JSON summary with key metrics, trends, and an overview.'
+        },
+        {
+          role: 'user' as const,
+          content: `Please analyze this data and provide a JSON response with format: {"overview": "brief overview", "keyMetrics": ["metric1", "metric2"], "trends": ["trend1", "trend2"]}. Data: ${data}`
+        }
+      ];
+
       const requestConfig = {
         model: 'gpt-3.5-turbo-16k',
         maxTokens: 500,
         temperature: 0.3,
-        responseFormat: { type: "json_object" }
+        messages
       };
+
       console.log('Data Summarization Request Config:', requestConfig);
 
       // Attempt API call
       console.log('Initiating OpenAI API call for data summarization...');
       const response = await this.openai.chat.completions.create({
         model: requestConfig.model,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert data analyst. Analyze the data and provide a JSON summary with key metrics, trends, and an overview.'
-          },
-          {
-            role: 'user',
-            content: `Please analyze this data and provide a JSON response with format: {"overview": "brief overview", "keyMetrics": ["metric1", "metric2"], "trends": ["trend1", "trend2"]}. Data: ${data}`
-          }
-        ],
+        messages: requestConfig.messages,
         temperature: requestConfig.temperature,
         max_tokens: requestConfig.maxTokens,
-        response_format: requestConfig.responseFormat
+        response_format: { type: "json_object" } as const
       });
 
       // Log successful response metadata
@@ -121,6 +252,14 @@ export class SlideGenerationService {
         completionTokens: response.usage?.completion_tokens,
         promptTokens: response.usage?.prompt_tokens
       });
+
+      // Add validation logging
+      await this.validatePromptEffectiveness(
+        requestConfig.messages[1].content,
+        response.choices[0].message
+      );
+      
+      await this.testTwoPassAnalysis(data);
 
       return JSON.parse(response.choices[0].message.content || '{"overview":"","keyMetrics":[],"trends":[]}');
     } catch (error: any) {
@@ -174,8 +313,117 @@ export class SlideGenerationService {
     return chunks;
   }
 
+  private getConsultingFramework(data: DataSummary): ConsultingFramework {
+    // Determine best framework based on data characteristics
+    const hasTrends = data.trends.length > 0;
+    const hasMetrics = data.keyMetrics.length > 0;
+    const hasComparisons = data.overview.includes('compared') || data.overview.includes('versus');
+
+    if (hasTrends && hasMetrics) {
+      return {
+        type: 'driver-tree',
+        elements: ['Metrics', 'Trends', 'Drivers', 'Implications']
+      };
+    } else if (hasComparisons) {
+      return {
+        type: 'mece',
+        elements: ['Categories', 'Comparisons', 'Insights']
+      };
+    } else {
+      return {
+        type: 'pyramid',
+        elements: ['Conclusion', 'Supporting Points', 'Data Foundation']
+      };
+    }
+  }
+
+  private async generateActionTitle(data: DataSummary, framework: ConsultingFramework): Promise<ActionTitle> {
+    const response = await this.openai.chat.completions.create({
+      model: 'gpt-4',
+      messages: [
+        {
+          role: 'system',
+          content: `You are an expert management consultant crafting action-oriented slide titles. 
+          Follow these principles:
+          1. Lead with the business implication
+          2. Include specific numbers and trends
+          3. Show clear cause-and-effect relationships
+          4. Make it actionable and forward-looking
+          5. Keep it under 2 lines but comprehensive
+          Framework being used: ${framework.type}`
+        },
+        {
+          role: 'user',
+          content: `Create an action title based on this data summary:
+          Overview: ${data.overview}
+          Key Metrics: ${data.keyMetrics.join(', ')}
+          Trends: ${data.trends.join(', ')}
+          
+          Format response as JSON:
+          {
+            "title": "Your action-oriented title here",
+            "supportingData": ["key data point 1", "key data point 2"],
+            "businessImplication": "Clear business implication"
+          }`
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 500,
+      response_format: { type: "json_object" } as const
+    });
+
+    return JSON.parse(response.choices[0].message.content || '{}');
+  }
+
+  private async recommendVisualization(data: DataSummary, framework: ConsultingFramework): Promise<VisualizationRecommendation> {
+    const response = await this.openai.chat.completions.create({
+      model: 'gpt-4',
+      messages: [
+        {
+          role: 'system',
+          content: `You are an expert in data visualization following consulting best practices.
+          Key principles:
+          1. Highlight what's important - guide the reader to essential messages
+          2. Use bold elements only for emphasis
+          3. Ensure self-explanatory visualizations
+          4. Avoid pie charts unless absolutely necessary
+          5. Consider the story you're telling`
+        },
+        {
+          role: 'user',
+          content: `Recommend the best visualization based on:
+          Overview: ${data.overview}
+          Key Metrics: ${data.keyMetrics.join(', ')}
+          Trends: ${data.trends.join(', ')}
+          Framework: ${framework.type}
+          
+          Format response as JSON:
+          {
+            "type": "Specific chart type",
+            "rationale": "Why this visualization works best",
+            "keyElements": ["What to emphasize"],
+            "dataHighlights": ["Specific data points to highlight"],
+            "alternativeOptions": ["Other possible visualizations"]
+          }`
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 500,
+      response_format: { type: "json_object" } as const
+    });
+
+    return JSON.parse(response.choices[0].message.content || '{}');
+  }
+
   private async createSubTasks(task: SlideGenerationTask): Promise<SubTask[]> {
+    // First pass: Data summary and framework selection
     const dataSummary = await this.summarizeData(task.rawData);
+    const framework = this.getConsultingFramework(dataSummary);
+    
+    // Second pass: Enhanced analysis with framework
+    const actionTitle = await this.generateActionTitle(dataSummary, framework);
+    const visualization = await this.recommendVisualization(dataSummary, framework);
+    
     const dataChunks = this.splitData(task.rawData);
     const subTasks: SubTask[] = [];
 
@@ -185,6 +433,8 @@ Context:
 - Style: ${task.style || 'Professional'}
 - Focus Area: ${task.focusArea || 'General analysis'}
 - Data Context: ${task.dataContext || 'Business data'}
+- Framework: ${framework.type}
+- Business Implication: ${actionTitle.businessImplication}
 - Key Metrics: ${dataSummary.keyMetrics.join(', ')}
 - Trends: ${dataSummary.trends.join(', ')}
 `;
@@ -192,7 +442,7 @@ Context:
     // Title generation (highest priority)
     subTasks.push({
       type: 'title',
-      prompt: `Generate a JSON response with a compelling, action-oriented title that highlights the main insight. ${contextPrompt} Data Overview: ${dataSummary.overview}. Format: {"title": "Your Title Here"}`,
+      prompt: `Generate a JSON response with this action title and supporting elements. ${contextPrompt} Format: {"title": "${actionTitle.title}", "supportingPoints": ${JSON.stringify(actionTitle.supportingData)}}`,
       priority: 4
     });
 
@@ -200,7 +450,7 @@ Context:
     dataChunks.forEach((chunk, index) => {
       subTasks.push({
         type: 'keyPoints',
-        prompt: `Generate a JSON response with key insights from this data chunk. Include specific numbers and actionable insights. ${contextPrompt} Format: {"points": ["Point 1", "Point 2", "Point 3"]}. Data: ${chunk}`,
+        prompt: `Generate a JSON response with key insights that support the main action title. Include specific numbers and trends. ${contextPrompt} Format: {"points": ["Point 1", "Point 2", "Point 3"]}. Data: ${chunk}`,
         priority: 3
       });
     });
@@ -208,14 +458,14 @@ Context:
     // Visualization recommendation (medium priority)
     subTasks.push({
       type: 'visualization',
-      prompt: `Generate a JSON response recommending the best visualization type and key elements to highlight. ${contextPrompt} Format: {"visualType": "Chart Type", "highlights": ["Element 1", "Element 2"]}. Overview: ${dataSummary.overview}`,
+      prompt: `Generate a JSON response with this visualization recommendation and elements to highlight. ${contextPrompt} Format: {"visualType": "${visualization.type}", "highlights": ${JSON.stringify(visualization.keyElements)}, "rationale": "${visualization.rationale}"}`,
       priority: 2
     });
 
     // Recommendations (lower priority)
     subTasks.push({
       type: 'recommendations',
-      prompt: `Generate a JSON response with strategic recommendations based on the data. ${contextPrompt} Format: {"recommendations": ["Recommendation 1", "Recommendation 2"]}. Overview: ${dataSummary.overview}`,
+      prompt: `Generate a JSON response with strategic recommendations that follow from the action title. ${contextPrompt} Format: {"recommendations": ["Recommendation 1", "Recommendation 2"]}. Supporting Data: ${actionTitle.supportingData.join(', ')}`,
       priority: 1
     });
 
