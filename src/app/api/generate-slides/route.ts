@@ -5,7 +5,7 @@ import { createSlideGenerationService } from '@/lib/services/SlideGenerationServ
 export const runtime = 'nodejs';
 export const preferredRegion = 'iad1';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300; // Increased to 5 minutes for complex operations
+export const maxDuration = 60; // Adjusted to 60 seconds to comply with Vercel hobby plan limits
 
 // Add production-specific configuration
 export const config = {
@@ -18,7 +18,7 @@ export const config = {
   runtime: {
     type: 'nodejs',
     regions: ['iad1'],
-    maxDuration: 300000, // 5 minutes in milliseconds
+    maxDuration: 60000, // 60 seconds in milliseconds
     memory: 1024, // 1GB memory
   },
   cache: 'no-store'
