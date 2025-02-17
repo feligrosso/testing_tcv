@@ -9,6 +9,18 @@ export const maxDuration = 60;
 
 // Add performance tracking
 const performanceMetrics: { [key: string]: number } = {};
+
+// Add diagnostic logging
+console.log('Route Module Initialization:', {
+  runtime,
+  dynamic,
+  maxDuration,
+  preferredRegion,
+  timestamp: new Date().toISOString(),
+  nodeVersion: process.version,
+  moduleType: import.meta.url ? 'ESM' : 'CJS'
+});
+
 function startOperation(name: string) {
   performanceMetrics[`${name}_start`] = Date.now();
 }
@@ -36,14 +48,23 @@ export const config = {
 // Validate environment variables
 function validateEnv() {
   const apiKey = process.env.OPENAI_API_KEY;
-  
-  console.log('Environment Check:', {
+  const runtimeEnv = {
     hasApiKey: !!apiKey,
     nodeEnv: process.env.NODE_ENV,
+    vercelEnv: process.env.VERCEL_ENV,
+    region: process.env.VERCEL_REGION,
+    isVercel: !!process.env.VERCEL,
+    runtime: runtime,
     timestamp: new Date().toISOString()
-  });
+  };
+  
+  console.log('Extended Environment Check:', runtimeEnv);
 
   if (!apiKey) {
+    console.error('API Key Validation Failed:', {
+      ...runtimeEnv,
+      error: 'OpenAI API key is not configured'
+    });
     throw new Error('OpenAI API key is not configured');
   }
 
@@ -64,6 +85,14 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
 }
 
 export async function POST(req: Request) {
+  console.log('Request Started:', {
+    url: req.url,
+    method: req.method,
+    headers: Object.fromEntries(req.headers.entries()),
+    runtime: runtime,
+    timestamp: new Date().toISOString()
+  });
+
   startOperation('total_request');
   
   try {
