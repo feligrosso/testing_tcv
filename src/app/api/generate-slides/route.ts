@@ -37,11 +37,12 @@ console.log('Route Module Configuration:', {
   isVercel: process.env.VERCEL === '1',
   vercelEnv: process.env.VERCEL_ENV,
   region: process.env.VERCEL_REGION,
-  experimentalServerActions: process.env.NEXT_EXPERIMENTAL_SERVER_ACTIONS,
-  memoryUsage: process.memoryUsage(),
-  cpuUsage: process.cpuUsage(),
-  deploymentId: process.env.VERCEL_DEPLOYMENT_ID,
-  gitCommitSha: process.env.VERCEL_GIT_COMMIT_SHA
+  buildTime: {
+    timestamp: new Date().toISOString(),
+    buildId: process.env.VERCEL_GIT_COMMIT_SHA || 'unknown',
+    deploymentUrl: process.env.VERCEL_URL || 'unknown',
+    deploymentRegion: preferredRegion,
+  }
 });
 
 // Add performance tracking
