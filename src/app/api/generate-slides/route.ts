@@ -1,8 +1,20 @@
 import { NextResponse } from "next/server";
 import { slideGenerationService } from '@/lib/services/SlideGenerationService';
 
+// Configure for Node.js runtime instead of Edge
+export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minutes timeout
-export const dynamic = 'force-dynamic'; // Disable static generation for edge runtime
+export const dynamic = 'force-dynamic';
+
+// Add Vercel-specific configuration
+export const config = {
+  api: {
+    responseLimit: false,
+    bodyParser: {
+      sizeLimit: '10mb',
+    },
+  },
+};
 
 // Validate environment variables
 function validateEnv() {

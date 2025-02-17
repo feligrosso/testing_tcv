@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { queueService } from './QueueService';
-import crypto from 'crypto';
-import { ChatCompletionMessage } from 'openai/resources/chat/completions';
+import { randomUUID } from 'crypto';
+import { ChatCompletionMessage, ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat/completions';
 
 interface SlideGenerationTask {
   title?: string;
@@ -57,103 +57,162 @@ interface VisualizationRecommendation {
 
 export class SlideGenerationService {
   private openai: OpenAI;
-  private static CHUNK_SIZE = 2000; // Increased for better context
+  private static CHUNK_SIZE = 2000;
   private static MAX_RETRIES = 3;
-  private static TIMEOUT = 60000; // Increased timeout
+  private static TIMEOUT = 60000;
+  private static DEFAULT_MODEL = 'gpt-3.5-turbo';
+  private modelCapabilities: Map<string, boolean> | null = null;
 
   constructor() {
+    // Vercel environment validation
+    if (!process.env.OPENAI_API_KEY) {
+      console.error('OpenAI API key is not configured');
+      throw new Error('OpenAI API key is required');
+    }
+
     this.openai = new OpenAI({ 
       apiKey: process.env.OPENAI_API_KEY,
       maxRetries: 0,
       timeout: SlideGenerationService.TIMEOUT,
     });
     
-    // Add version validation logging
-    console.log('OpenAI Service Initialization:', {
-      nodeVersion: process.version,
-      environment: process.env.NODE_ENV
+    // Enhanced initialization logging
+    console.log('OpenAI Service Details:', {
+      baseURL: this.openai.baseURL,
+      defaultModel: SlideGenerationService.DEFAULT_MODEL,
+      timestamp: new Date().toISOString()
     });
 
-    // Validate response format support
-    this.validateResponseFormatSupport();
-
-    // Enhanced diagnostic logging
-    try {
-      console.log('Build Environment:', {
-        nodeEnv: process.env.NODE_ENV,
-        nextVersion: process.env.NEXT_VERSION,
-        buildTime: new Date().toISOString()
-      });
-
-      // Log OpenAI instance details without accessing package.json
-      console.log('OpenAI Configuration:', {
-        timeout: SlideGenerationService.TIMEOUT,
-        defaultModel: 'gpt-3.5-turbo',
-        apiEndpoint: this.openai.baseURL // Log base URL to verify configuration
-      });
-
-      // Validate OpenAI client initialization
-      this.validateOpenAIClient();
-    } catch (error) {
-      console.error('Initialization diagnostic error:', error);
-    }
+    // Test model capabilities
+    this.validateModelCapabilities();
   }
 
-  private async validateResponseFormatSupport() {
+  private async validateModelCapabilities() {
     try {
-        // Test API with JSON response format
-        const testResponse = await this.openai.chat.completions.create({
-            model: 'gpt-3.5-turbo',
-            messages: [{ role: 'user', content: 'Reply with: {"test": true}' }],
-            max_tokens: 50,
-            response_format: { type: "json_object" }
-        });
-        console.log('Response Format Support:', {
-            supported: true,
-            responseType: typeof testResponse.choices[0].message.content,
-            isValidJSON: this.isValidJSON(testResponse.choices[0].message.content || '')
-        });
+      const models = ['gpt-3.5-turbo', 'gpt-4', 'gpt-3.5-turbo-16k'];
+      const capabilities = new Map<string, boolean>();
+
+      for (const model of models) {
+        try {
+          // Only test basic completion
+          const basicTest = await this.openai.chat.completions.create({
+            model,
+            messages: [{ role: 'user', content: 'Test' }],
+            max_tokens: 5
+          });
+          capabilities.set(`${model}-basic`, true);
+        } catch (error: any) {
+          capabilities.set(`${model}-basic`, false);
+          console.error(`Model ${model} test failed:`, error.message);
+        }
+      }
+
+      console.log('Model Capabilities Analysis:', {
+        capabilities: Object.fromEntries(capabilities),
+        timestamp: new Date().toISOString()
+      });
+
+      // Store results for later use
+      this.modelCapabilities = capabilities;
     } catch (error: any) {
-        console.error('Response Format Support Test Failed:', {
-            error: error.message,
-            type: error.type,
-            code: error.code,
-            stack: error.stack
-        });
-    }
-  }
-
-  private isValidJSON(str: string): boolean {
-    try {
-        JSON.parse(str);
-        return true;
-    } catch (e) {
-        return false;
-    }
-  }
-
-  private async validateOpenAIClient() {
-    try {
-      // Test API connectivity with minimal request
-      const modelList = await this.openai.models.list();
-      console.log('Available Models:', modelList.data.map(model => model.id));
-    } catch (error) {
-      console.error('OpenAI client validation error:', error);
+      console.error('Model capability validation failed:', {
+        error: error.message,
+        type: error.type,
+        code: error.code,
+        timestamp: new Date().toISOString()
+      });
     }
   }
 
   private generateTaskId(task: SlideGenerationTask): string {
-    const data = JSON.stringify({
-      title: task.title,
-      rawData: task.rawData,
-      soWhat: task.soWhat,
-      source: task.source,
-      audience: task.audience,
-      style: task.style,
-      focusArea: task.focusArea,
-      dataContext: task.dataContext
-    });
-    return crypto.createHash('md5').update(data).digest('hex');
+    // Use randomUUID instead of crypto.createHash for better compatibility
+    return randomUUID();
+  }
+
+  private async executeSubTask(subTask: SubTask): Promise<any> {
+    const startTime = Date.now();
+    try {
+      const modelToUse = this.selectAppropriateModel(subTask.type);
+
+      const requestConfig: ChatCompletionCreateParamsNonStreaming = {
+        model: modelToUse,
+        messages: [
+          { 
+            role: 'system' as const, 
+            content: `You are an expert management consultant creating high-impact presentation slides.
+            You must respond with valid JSON exactly matching the format specified in the user's prompt.
+            Do not include any additional text or explanations outside the JSON structure.` 
+          },
+          { 
+            role: 'user' as const, 
+            content: subTask.prompt
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 400
+      };
+
+      console.log('SubTask Request Details:', {
+        type: subTask.type,
+        model: modelToUse,
+        timestamp: new Date().toISOString(),
+        promptLength: subTask.prompt.length
+      });
+
+      const response = await this.openai.chat.completions.create(requestConfig);
+      
+      console.log('SubTask Response Details:', {
+        type: subTask.type,
+        model: response.model,
+        responseLength: response.choices[0].message.content?.length || 0,
+        finishReason: response.choices[0].finish_reason,
+        timestamp: new Date().toISOString()
+      });
+
+      const content = response.choices[0].message.content || '{}';
+      
+      try {
+        const jsonResponse = JSON.parse(content);
+        return {
+          type: subTask.type,
+          content: JSON.stringify(jsonResponse)
+        };
+      } catch (e) {
+        console.error('Invalid JSON response:', {
+          content: content.slice(0, 100) + '...',
+          error: e instanceof Error ? e.message : 'Unknown error'
+        });
+        return {
+          type: subTask.type,
+          content: JSON.stringify(this.getFallbackResponse(subTask.type))
+        };
+      }
+    } catch (error: any) {
+      console.error('SubTask Error Details:', {
+        type: subTask.type,
+        errorType: error.type,
+        errorCode: error.code,
+        errorMessage: error.message,
+        modelUsed: this.selectAppropriateModel(subTask.type),
+        timestamp: new Date().toISOString()
+      });
+
+      return {
+        type: subTask.type,
+        content: JSON.stringify(this.getFallbackResponse(subTask.type))
+      };
+    }
+  }
+
+  private getFallbackResponse(type: SubTask['type']) {
+    const fallbacks = {
+      title: { title: 'Analysis Results' },
+      keyPoints: { points: ['Data analysis in progress'] },
+      recommendations: { recommendations: ['Analysis pending'] },
+      visualization: { visualType: 'Bar Chart', highlights: [] },
+      summary: { overview: 'Analysis pending', keyPoints: [] }
+    };
+    return fallbacks[type];
   }
 
   private async validatePromptEffectiveness(prompt: string, response: any): Promise<void> {
@@ -214,15 +273,19 @@ export class SlideGenerationService {
         timestamp: new Date().toISOString()
       });
 
-      // Log model and request configuration
       const messages = [
         {
           role: 'system' as const,
-          content: 'You are an expert data analyst. Analyze the data and provide a JSON summary with key metrics, trends, and an overview.'
+          content: `You are an expert data analyst. You must respond with valid JSON following this exact format:
+          {
+            "overview": "brief overview text",
+            "keyMetrics": ["metric1", "metric2"],
+            "trends": ["trend1", "trend2"]
+          }`
         },
         {
           role: 'user' as const,
-          content: `Please analyze this data and provide a JSON response with format: {"overview": "brief overview", "keyMetrics": ["metric1", "metric2"], "trends": ["trend1", "trend2"]}. Data: ${data}`
+          content: `Analyze this data: ${data}`
         }
       ];
 
@@ -235,17 +298,13 @@ export class SlideGenerationService {
 
       console.log('Data Summarization Request Config:', requestConfig);
 
-      // Attempt API call
-      console.log('Initiating OpenAI API call for data summarization...');
       const response = await this.openai.chat.completions.create({
         model: requestConfig.model,
         messages: requestConfig.messages,
         temperature: requestConfig.temperature,
-        max_tokens: requestConfig.maxTokens,
-        response_format: { type: "json_object" } as const
+        max_tokens: requestConfig.maxTokens
       });
 
-      // Log successful response metadata
       console.log('OpenAI API Response Metadata:', {
         model: response.model,
         objectType: response.object,
@@ -253,17 +312,18 @@ export class SlideGenerationService {
         promptTokens: response.usage?.prompt_tokens
       });
 
-      // Add validation logging
-      await this.validatePromptEffectiveness(
-        requestConfig.messages[1].content,
-        response.choices[0].message
-      );
-      
-      await this.testTwoPassAnalysis(data);
-
-      return JSON.parse(response.choices[0].message.content || '{"overview":"","keyMetrics":[],"trends":[]}');
+      const content = response.choices[0].message.content || '{}';
+      try {
+        return JSON.parse(content);
+      } catch (e) {
+        console.error('JSON parsing error:', e);
+        return {
+          overview: '',
+          keyMetrics: [],
+          trends: []
+        };
+      }
     } catch (error: any) {
-      // Enhanced error logging
       console.error('Data summarization error details:', {
         errorType: error.type,
         errorCode: error.code,
@@ -272,11 +332,6 @@ export class SlideGenerationService {
         requestId: error.request_id,
         httpStatus: error.status
       });
-
-      // Log stack trace for unexpected errors
-      if (!error.type || error.type !== 'invalid_request_error') {
-        console.error('Unexpected error stack:', error.stack);
-      }
 
       return {
         overview: '',
@@ -343,7 +398,14 @@ export class SlideGenerationService {
       messages: [
         {
           role: 'system',
-          content: `You are an expert management consultant crafting action-oriented slide titles. 
+          content: `You are an expert management consultant crafting action-oriented slide titles.
+          You must respond with valid JSON following this exact format:
+          {
+            "title": "Your action-oriented title here",
+            "supportingData": ["key data point 1", "key data point 2"],
+            "businessImplication": "Clear business implication"
+          }
+
           Follow these principles:
           1. Lead with the business implication
           2. Include specific numbers and trends
@@ -357,72 +419,115 @@ export class SlideGenerationService {
           content: `Create an action title based on this data summary:
           Overview: ${data.overview}
           Key Metrics: ${data.keyMetrics.join(', ')}
-          Trends: ${data.trends.join(', ')}
-          
-          Format response as JSON:
-          {
-            "title": "Your action-oriented title here",
-            "supportingData": ["key data point 1", "key data point 2"],
-            "businessImplication": "Clear business implication"
-          }`
+          Trends: ${data.trends.join(', ')}`
         }
       ],
       temperature: 0.7,
-      max_tokens: 500,
-      response_format: { type: "json_object" } as const
+      max_tokens: 500
     });
 
-    return JSON.parse(response.choices[0].message.content || '{}');
+    const content = response.choices[0].message.content || '{}';
+    try {
+      return JSON.parse(content);
+    } catch (e) {
+      console.error('JSON parsing error:', e);
+      return {
+        title: 'Analysis Results',
+        supportingData: [],
+        businessImplication: ''
+      };
+    }
   }
 
   private async recommendVisualization(data: DataSummary, framework: ConsultingFramework): Promise<VisualizationRecommendation> {
-    const response = await this.openai.chat.completions.create({
+    console.log('Visualization Request Config:', {
       model: 'gpt-4',
-      messages: [
-        {
-          role: 'system',
-          content: `You are an expert in data visualization following consulting best practices.
-          Key principles:
-          1. Highlight what's important - guide the reader to essential messages
-          2. Use bold elements only for emphasis
-          3. Ensure self-explanatory visualizations
-          4. Avoid pie charts unless absolutely necessary
-          5. Consider the story you're telling`
-        },
-        {
-          role: 'user',
-          content: `Recommend the best visualization based on:
-          Overview: ${data.overview}
-          Key Metrics: ${data.keyMetrics.join(', ')}
-          Trends: ${data.trends.join(', ')}
-          Framework: ${framework.type}
-          
-          Format response as JSON:
-          {
-            "type": "Specific chart type",
-            "rationale": "Why this visualization works best",
-            "keyElements": ["What to emphasize"],
-            "dataHighlights": ["Specific data points to highlight"],
-            "alternativeOptions": ["Other possible visualizations"]
-          }`
-        }
-      ],
-      temperature: 0.7,
-      max_tokens: 500,
-      response_format: { type: "json_object" } as const
+      dataLength: JSON.stringify(data).length,
+      frameworkType: framework.type,
+      timestamp: new Date().toISOString()
     });
 
-    return JSON.parse(response.choices[0].message.content || '{}');
+    try {
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [
+          {
+            role: 'system',
+            content: `You are an expert in data visualization following consulting best practices.
+            You must respond with valid JSON following this exact format:
+            {
+              "type": "chart_type",
+              "rationale": "explanation",
+              "keyElements": ["element1", "element2"],
+              "dataHighlights": ["highlight1", "highlight2"],
+              "alternativeOptions": ["option1", "option2"]
+            }
+            
+            Key principles:
+            1. Highlight what's important - guide the reader to essential messages
+            2. Use bold elements only for emphasis
+            3. Ensure self-explanatory visualizations
+            4. Avoid pie charts unless absolutely necessary
+            5. Consider the story you're telling`
+          },
+          {
+            role: 'user',
+            content: `Recommend the best visualization based on:
+            Overview: ${data.overview}
+            Key Metrics: ${data.keyMetrics.join(', ')}
+            Trends: ${data.trends.join(', ')}
+            Framework: ${framework.type}`
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 500
+      });
+
+      console.log('Visualization Response Details:', {
+        model: response.model,
+        responseLength: response.choices[0].message.content?.length || 0,
+        isValidJson: this.isValidJson(response.choices[0].message.content || ''),
+        timestamp: new Date().toISOString()
+      });
+
+      return JSON.parse(response.choices[0].message.content || '{}');
+    } catch (error: any) {
+      console.error('Visualization Error Details:', {
+        errorType: error.type,
+        errorCode: error.code,
+        errorMessage: error.message,
+        timestamp: new Date().toISOString()
+      });
+      throw error;
+    }
+  }
+
+  // Add helper method for JSON validation
+  private isValidJson(str: string): boolean {
+    try {
+        JSON.parse(str);
+        return true;
+    } catch (e) {
+        return false;
+    }
   }
 
   private async createSubTasks(task: SlideGenerationTask): Promise<SubTask[]> {
-    // First pass: Data summary and framework selection
-    const dataSummary = await this.summarizeData(task.rawData);
-    const framework = this.getConsultingFramework(dataSummary);
-    
-    // Second pass: Enhanced analysis with framework
-    const actionTitle = await this.generateActionTitle(dataSummary, framework);
-    const visualization = await this.recommendVisualization(dataSummary, framework);
+    // Run initial analysis in parallel
+    const [dataSummary, framework] = await Promise.all([
+        this.summarizeData(task.rawData),
+        this.getConsultingFramework({
+            overview: '',
+            keyMetrics: [],
+            trends: []
+        }) // Start with empty summary to avoid waiting
+    ]);
+
+    // Run second phase analysis in parallel
+    const [actionTitle, visualization] = await Promise.all([
+        this.generateActionTitle(dataSummary, framework),
+        this.recommendVisualization(dataSummary, framework)
+    ]);
     
     const dataChunks = this.splitData(task.rawData);
     const subTasks: SubTask[] = [];
@@ -435,149 +540,97 @@ Context:
 - Data Context: ${task.dataContext || 'Business data'}
 - Framework: ${framework.type}
 - Business Implication: ${actionTitle.businessImplication}
-- Key Metrics: ${dataSummary.keyMetrics.join(', ')}
-- Trends: ${dataSummary.trends.join(', ')}
 `;
 
-    // Title generation (highest priority)
+    // Simplified prompts for faster processing
     subTasks.push({
-      type: 'title',
-      prompt: `Generate a JSON response with this action title and supporting elements. ${contextPrompt} Format: {"title": "${actionTitle.title}", "supportingPoints": ${JSON.stringify(actionTitle.supportingData)}}`,
-      priority: 4
+        type: 'title',
+        prompt: `Create a concise JSON title response: {"title": "${actionTitle.title}", "supportingPoints": ${JSON.stringify(actionTitle.supportingData)}}`,
+        priority: 4
     });
 
-    // Key points from each chunk (high priority)
-    dataChunks.forEach((chunk, index) => {
-      subTasks.push({
+    // Process only the first chunk for speed
+    const firstChunk = dataChunks[0];
+    subTasks.push({
         type: 'keyPoints',
-        prompt: `Generate a JSON response with key insights that support the main action title. Include specific numbers and trends. ${contextPrompt} Format: {"points": ["Point 1", "Point 2", "Point 3"]}. Data: ${chunk}`,
+        prompt: `Generate a JSON with 3 key insights. Format: {"points": ["Point 1", "Point 2", "Point 3"]}. Data: ${firstChunk}`,
         priority: 3
-      });
     });
 
-    // Visualization recommendation (medium priority)
     subTasks.push({
-      type: 'visualization',
-      prompt: `Generate a JSON response with this visualization recommendation and elements to highlight. ${contextPrompt} Format: {"visualType": "${visualization.type}", "highlights": ${JSON.stringify(visualization.keyElements)}, "rationale": "${visualization.rationale}"}`,
-      priority: 2
+        type: 'visualization',
+        prompt: `Create JSON visualization spec: {"visualType": "${visualization.type}", "highlights": ${JSON.stringify(visualization.keyElements)}}`,
+        priority: 2
     });
 
-    // Recommendations (lower priority)
     subTasks.push({
-      type: 'recommendations',
-      prompt: `Generate a JSON response with strategic recommendations that follow from the action title. ${contextPrompt} Format: {"recommendations": ["Recommendation 1", "Recommendation 2"]}. Supporting Data: ${actionTitle.supportingData.join(', ')}`,
-      priority: 1
+        type: 'recommendations',
+        prompt: `Create JSON with 2 recommendations: {"recommendations": ["Recommendation 1", "Recommendation 2"]}`,
+        priority: 1
     });
 
     return subTasks;
   }
 
-  private async executeSubTask(subTask: SubTask): Promise<any> {
+  async generateSlide(task: SlideGenerationTask) {
+    const taskId = this.generateTaskId(task);
+    
     try {
-      const response = await this.openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: [
-          { 
-            role: 'system', 
-            content: 'You are an expert management consultant creating high-impact presentation slides. Always respond with valid JSON following the exact format specified in the prompt.' 
-          },
-          { 
-            role: 'user', 
-            content: subTask.prompt 
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 400, // Increased for more detailed responses
-        response_format: { type: "json_object" }
-      });
+        // Create subtasks with optimized prompts
+        const subTasks = await this.createSubTasks(task);
+        
+        // Process all tasks in parallel for speed
+        const results = await Promise.all(
+            subTasks.map(subTask => 
+                queueService.enqueue(
+                    `${taskId}-${subTask.type}`,
+                    () => this.executeSubTask(subTask),
+                    subTask.priority
+                )
+            )
+        );
 
-      const content = response.choices[0].message.content || '{}';
-      JSON.parse(content); // Validate JSON
-      
-      return {
-        type: subTask.type,
-        content
-      };
+        // Parse results
+        const titleResult = results.find(r => r.type === 'title')?.content;
+        const keyPointsResult = results.find(r => r.type === 'keyPoints')?.content;
+        const visualizationResult = results.find(r => r.type === 'visualization')?.content;
+        const recommendationsResult = results.find(r => r.type === 'recommendations')?.content;
+
+        // Use faster parsing with default values
+        const parsedTitle = this.safeJsonParse(titleResult, { title: task.title || 'Analysis Results', supportingPoints: [] });
+        const parsedKeyPoints = this.safeJsonParse(keyPointsResult, { points: [] });
+        const parsedVisualization = this.safeJsonParse(visualizationResult, { visualType: 'Bar Chart', highlights: [] });
+        const parsedRecommendations = this.safeJsonParse(recommendationsResult, { recommendations: [] });
+
+        return {
+            title: parsedTitle.title,
+            subtitle: task.soWhat || 'Key Insights',
+            visualType: parsedVisualization.visualType,
+            visualHighlights: parsedVisualization.highlights,
+            keyPoints: parsedKeyPoints.points.slice(0, 3),
+            recommendations: parsedRecommendations.recommendations.slice(0, 2),
+            source: task.source || 'Data Analysis',
+            audience: task.audience || 'General business audience',
+            style: task.style || 'Professional'
+        };
     } catch (error: any) {
-      console.error(`SubTask execution error (${subTask.type}):`, error);
-      return {
-        type: subTask.type,
-        content: JSON.stringify(
-          subTask.type === 'title' 
-            ? { title: 'Analysis Results' }
-            : subTask.type === 'keyPoints'
-            ? { points: ['Data analysis in progress'] }
-            : subTask.type === 'recommendations'
-            ? { recommendations: ['Analysis pending'] }
-            : { visualType: 'Bar Chart', highlights: [] }
-        )
-      };
+        console.error('Slide generation error:', error);
+        throw new Error(`Slide generation failed: ${error.message}`);
     }
   }
 
-  async generateSlide(task: SlideGenerationTask) {
-    const taskId = this.generateTaskId(task);
-    const subTasks = await this.createSubTasks(task);
-    
+  private selectAppropriateModel(taskType: SubTask['type']): string {
+    // Use faster models by default
+    return 'gpt-3.5-turbo';
+  }
+
+  // Helper method for safe JSON parsing
+  private safeJsonParse(content: string | undefined, defaultValue: any): any {
+    if (!content) return defaultValue;
     try {
-      // Process tasks in priority order
-      const results = [];
-      const priorityGroups = new Map<number, SubTask[]>();
-      
-      // Group tasks by priority
-      subTasks.forEach(task => {
-        const tasks = priorityGroups.get(task.priority) || [];
-        tasks.push(task);
-        priorityGroups.set(task.priority, tasks);
-      });
-
-      // Process each priority group in sequence, but tasks within a group in parallel
-      for (let priority = 4; priority >= 1; priority--) {
-        const tasksInGroup = priorityGroups.get(priority) || [];
-        if (tasksInGroup.length > 0) {
-          const groupResults = await Promise.all(
-            tasksInGroup.map(subTask => 
-              queueService.enqueue(
-                `${taskId}-${subTask.type}`,
-                () => this.executeSubTask(subTask),
-                subTask.priority
-              )
-            )
-          );
-          results.push(...groupResults);
-        }
-      }
-
-      // Parse results
-      const titleResult = results.find(r => r.type === 'title')?.content;
-      const keyPointsResults = results.filter(r => r.type === 'keyPoints').map(r => r.content);
-      const visualizationResult = results.find(r => r.type === 'visualization')?.content;
-      const recommendationsResult = results.find(r => r.type === 'recommendations')?.content;
-
-      const parsedVisualization = JSON.parse(visualizationResult || '{"visualType":"Bar Chart","highlights":[]}');
-      const parsedRecommendations = JSON.parse(recommendationsResult || '{"recommendations":[]}');
-
-      return {
-        title: JSON.parse(titleResult || '{"title":"Analysis Results"}').title || task.title || 'Analysis Results',
-        subtitle: task.soWhat || 'Key Insights',
-        visualType: parsedVisualization.visualType || 'Bar Chart',
-        visualHighlights: parsedVisualization.highlights || [],
-        keyPoints: keyPointsResults.flatMap(result => {
-          try {
-            const parsed = JSON.parse(result);
-            return parsed.points || [];
-          } catch (e) {
-            return [];
-          }
-        }).slice(0, 5), // Increased to 5 key points
-        recommendations: parsedRecommendations.recommendations || [],
-        source: task.source || 'Data Analysis',
-        audience: task.audience || 'General business audience',
-        style: task.style || 'Professional'
-      };
-    } catch (error: any) {
-      console.error('Slide generation error:', error);
-      throw new Error(`Slide generation failed: ${error.message}`);
+        return JSON.parse(content);
+    } catch (e) {
+        return defaultValue;
     }
   }
 }
