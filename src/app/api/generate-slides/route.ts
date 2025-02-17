@@ -1,13 +1,30 @@
 import { NextResponse } from "next/server";
 import { createSlideGenerationService } from '@/lib/services/SlideGenerationService';
 
-// Configure for optimized Node.js runtime
+// Configure for optimized Node.js runtime with explicit settings
 export const runtime = 'nodejs';
-export const preferredRegion = 'iad1';  // Washington DC for lowest latency
+export const preferredRegion = 'iad1';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-// Enhanced diagnostic logging
+// Add production-specific configuration
+export const config = {
+  api: {
+    responseLimit: false,
+    bodyParser: {
+      sizeLimit: '10mb',
+    },
+  },
+  runtime: {
+    type: 'nodejs',
+    regions: ['iad1'],
+    maxDuration: 60000, // 60 seconds in milliseconds
+    memory: 1024, // 1GB memory
+  },
+  cache: 'no-store'
+};
+
+// Enhanced diagnostic logging with production checks
 console.log('Route Module Configuration:', {
   runtime,
   dynamic,
@@ -18,6 +35,8 @@ console.log('Route Module Configuration:', {
   moduleType: import.meta.url ? 'ESM' : 'CJS',
   environment: process.env.NODE_ENV,
   isVercel: process.env.VERCEL === '1',
+  vercelEnv: process.env.VERCEL_ENV,
+  region: process.env.VERCEL_REGION,
   experimentalServerActions: process.env.NEXT_EXPERIMENTAL_SERVER_ACTIONS,
   memoryUsage: process.memoryUsage(),
   cpuUsage: process.cpuUsage()
@@ -45,18 +64,6 @@ function endOperation(name: string) {
   });
 }
 
-// Add Vercel-specific configuration
-export const config = {
-  api: {
-    responseLimit: false,
-    bodyParser: {
-      sizeLimit: '10mb',
-    },
-  },
-  runtime: 'nodejs',
-  regions: ['iad1'],
-};
-
 // Enhanced environment validation
 function validateEnv() {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -82,6 +89,19 @@ function validateEnv() {
       error: 'OpenAI API key is not configured'
     });
     throw new Error('OpenAI API key is not configured');
+  }
+
+  // Additional production checks
+  if (process.env.NODE_ENV === 'production') {
+    if (!process.env.VERCEL) {
+      console.warn('Production environment detected but not running on Vercel');
+    }
+    if (process.env.VERCEL_ENV !== 'production') {
+      console.warn('Vercel environment mismatch:', {
+        expectedEnv: 'production',
+        actualEnv: process.env.VERCEL_ENV
+      });
+    }
   }
 
   return apiKey;
