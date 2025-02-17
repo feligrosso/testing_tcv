@@ -13,76 +13,47 @@ const responseHeaders = {
 
 // Try different ways to access environment variables
 function getOpenAIKey() {
-  console.log('Environment Variables Available:', {
-    envKeys: Object.keys(process.env),
-    envCount: Object.keys(process.env).length,
+  // Log all environment variables (excluding sensitive values)
+  const envVars = Object.keys(process.env).sort();
+  console.log('All Environment Variables:', {
+    count: envVars.length,
+    names: envVars.filter(key => !key.toLowerCase().includes('key') && !key.toLowerCase().includes('secret')),
+    hasOpenAIKey: envVars.includes('OPENAI_API_KEY'),
     timestamp: new Date().toISOString()
   });
 
-  const methods = {
-    direct: process.env.OPENAI_API_KEY,
-    processEnv: process?.env?.OPENAI_API_KEY,
-    windowEnv: typeof window !== 'undefined' ? (window as any).env?.OPENAI_API_KEY : undefined,
-  };
+  // Get the key directly
+  const key = process.env.OPENAI_API_KEY;
 
-  // Log detailed information about each method
-  console.log('API Key Access Attempts:', {
-    direct: {
-      exists: !!methods.direct,
-      type: typeof methods.direct,
-      length: methods.direct?.length,
-      prefix: methods.direct?.substring(0, 7)
-    },
-    processEnv: {
-      exists: !!methods.processEnv,
-      type: typeof methods.processEnv,
-      length: methods.processEnv?.length,
-      prefix: methods.processEnv?.substring(0, 7)
-    },
-    windowEnv: {
-      exists: !!methods.windowEnv,
-      type: typeof methods.windowEnv,
-      length: methods.windowEnv?.length,
-      prefix: methods.windowEnv?.substring(0, 7)
-    },
-    timestamp: new Date().toISOString()
-  });
-
-  // Try each method in sequence and log which one worked
-  const key = methods.direct || methods.processEnv || methods.windowEnv;
-  
-  if (key) {
-    console.log('API Key Found:', {
-      method: methods.direct ? 'direct' : methods.processEnv ? 'processEnv' : 'windowEnv',
-      length: key.length,
-      prefix: key.substring(0, 7),
-      timestamp: new Date().toISOString()
-    });
-  } else {
-    console.error('No API Key Found:', {
-      envVarsAvailable: Object.keys(process.env).length > 0,
+  if (!key) {
+    console.error('OpenAI API Key Missing:', {
+      envVarsAvailable: envVars.length > 0,
       nodeEnv: process.env.NODE_ENV,
       isVercel: process.env.VERCEL === '1',
       timestamp: new Date().toISOString()
     });
+    return null;
   }
+
+  // Log key details (safely)
+  console.log('OpenAI API Key Details:', {
+    length: key.length,
+    prefix: key.substring(0, 7),
+    format: {
+      isProjectKey: key.startsWith('sk-proj-'),
+      isStandardKey: key.startsWith('sk-') && !key.startsWith('sk-proj-'),
+    },
+    timestamp: new Date().toISOString()
+  });
 
   return key;
 }
 
 export async function POST(req: Request) {
-  // Log environment state at the start of the request
-  console.log('Request Environment State:', {
+  console.log('Starting Request Processing:', {
     nodeEnv: process.env.NODE_ENV,
     isVercel: process.env.VERCEL === '1',
     vercelEnv: process.env.VERCEL_ENV,
-    timestamp: new Date().toISOString()
-  });
-
-  console.log('API Request Started:', {
-    url: req.url,
-    method: req.method,
-    headers: Object.fromEntries(req.headers.entries()),
     timestamp: new Date().toISOString()
   });
 
@@ -90,7 +61,7 @@ export async function POST(req: Request) {
     // Parse request first to validate it's properly formatted
     const reqData = await req.json();
 
-    // Try to get API key using multiple methods
+    // Get API key
     const apiKey = getOpenAIKey();
     
     if (!apiKey) {
@@ -101,9 +72,10 @@ export async function POST(req: Request) {
           nodeEnv: process.env.NODE_ENV,
           isVercel: process.env.VERCEL === '1',
           vercelEnv: process.env.VERCEL_ENV,
-          envCount: Object.keys(process.env).length,
+          envVarsCount: Object.keys(process.env).length,
           hasEnvVars: Object.keys(process.env).length > 0,
-          envVarNames: Object.keys(process.env).filter(key => !key.toLowerCase().includes('key')),
+          envVarNames: Object.keys(process.env)
+            .filter(key => !key.toLowerCase().includes('key') && !key.toLowerCase().includes('secret')),
         }
       };
       console.error('API Key Missing:', error);
@@ -114,50 +86,72 @@ export async function POST(req: Request) {
     }
 
     // Initialize service and generate slide
-    const slideService = createSlideGenerationService(apiKey);
-    const result = await slideService.generateSlide({
-      title: reqData.title,
-      rawData: reqData.rawData,
-      soWhat: reqData.soWhat,
-      source: reqData.source,
-      audience: reqData.audience,
-      style: reqData.style,
-      focusArea: reqData.focusArea,
-      dataContext: reqData.dataContext
-    });
+    try {
+      const slideService = createSlideGenerationService(apiKey);
+      const result = await slideService.generateSlide({
+        title: reqData.title,
+        rawData: reqData.rawData,
+        soWhat: reqData.soWhat,
+        source: reqData.source,
+        audience: reqData.audience,
+        style: reqData.style,
+        focusArea: reqData.focusArea,
+        dataContext: reqData.dataContext
+      });
 
-    // Return simple JSON response
-    return NextResponse.json(result, { 
-      status: 200,
-      headers: responseHeaders
-    });
+      return NextResponse.json(result, { 
+        status: 200,
+        headers: responseHeaders
+      });
+    } catch (serviceError: any) {
+      console.error('Slide Service Error:', {
+        error: serviceError.message,
+        type: serviceError.type,
+        status: serviceError.status,
+        code: serviceError.code,
+        timestamp: new Date().toISOString()
+      });
 
-  } catch (error: any) {
-    console.error('API Error:', {
-      message: error.message,
-      stack: error.stack,
-      timestamp: new Date().toISOString(),
-      debug: {
-        nodeEnv: process.env.NODE_ENV,
-        isVercel: process.env.VERCEL === '1',
-        vercelEnv: process.env.VERCEL_ENV,
-        envKeys: Object.keys(process.env),
-        processEnvType: typeof process.env,
-        apiKeyType: typeof process.env.OPENAI_API_KEY,
+      // Handle specific error cases
+      if (serviceError.message?.includes('401')) {
+        return NextResponse.json({
+          error: true,
+          message: 'Invalid API key format or unauthorized access',
+          debug: {
+            errorType: '401_Unauthorized',
+            keyPrefix: apiKey.substring(0, 7),
+            keyLength: apiKey.length,
+            isProjectKey: apiKey.startsWith('sk-proj-')
+          }
+        }, { 
+          status: 401,
+          headers: responseHeaders
+        });
       }
+
+      throw serviceError; // Re-throw for general error handling
+    }
+  } catch (error: any) {
+    console.error('General API Error:', {
+      message: error.message,
+      type: error.type,
+      status: error.status,
+      code: error.code,
+      timestamp: new Date().toISOString()
     });
 
     return NextResponse.json({
       error: true,
       message: error.message || 'An unexpected error occurred',
       debug: {
+        errorType: error.type || 'unknown',
+        status: error.status,
         nodeEnv: process.env.NODE_ENV,
         isVercel: process.env.VERCEL === '1',
-        vercelEnv: process.env.VERCEL_ENV,
-        envKeyCount: Object.keys(process.env).length
+        vercelEnv: process.env.VERCEL_ENV
       }
     }, { 
-      status: 500,
+      status: error.status || 500,
       headers: responseHeaders
     });
   }
