@@ -7,8 +7,8 @@ export const preferredRegion = 'iad1';  // Washington DC for lowest latency
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-// Add diagnostic logging
-console.log('Route Module Initialization:', {
+// Enhanced diagnostic logging
+console.log('Route Module Configuration:', {
   runtime,
   dynamic,
   maxDuration,
@@ -17,7 +17,10 @@ console.log('Route Module Initialization:', {
   nodeVersion: process.version,
   moduleType: import.meta.url ? 'ESM' : 'CJS',
   environment: process.env.NODE_ENV,
-  isVercel: process.env.VERCEL === '1'
+  isVercel: process.env.VERCEL === '1',
+  experimentalServerActions: process.env.NEXT_EXPERIMENTAL_SERVER_ACTIONS,
+  memoryUsage: process.memoryUsage(),
+  cpuUsage: process.cpuUsage()
 });
 
 // Add performance tracking
@@ -25,15 +28,20 @@ const performanceMetrics: { [key: string]: number } = {};
 
 function startOperation(name: string) {
   performanceMetrics[`${name}_start`] = Date.now();
+  console.log(`Starting Operation: ${name}`, {
+    timestamp: new Date().toISOString(),
+    memoryUsage: process.memoryUsage()
+  });
 }
 
 function endOperation(name: string) {
   const start = performanceMetrics[`${name}_start`];
   const duration = Date.now() - start;
   performanceMetrics[`${name}_duration`] = duration;
-  console.log(`Operation Timing - ${name}:`, {
+  console.log(`Operation Complete - ${name}:`, {
     durationMs: duration,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    memoryUsage: process.memoryUsage()
   });
 }
 
@@ -49,17 +57,21 @@ export const config = {
   regions: ['iad1'],
 };
 
-// Validate environment variables
+// Enhanced environment validation
 function validateEnv() {
   const apiKey = process.env.OPENAI_API_KEY;
   const runtimeEnv = {
     hasApiKey: !!apiKey,
+    apiKeyLength: apiKey?.length,
     nodeEnv: process.env.NODE_ENV,
     vercelEnv: process.env.VERCEL_ENV,
     region: process.env.VERCEL_REGION,
     isVercel: !!process.env.VERCEL,
     runtime: runtime,
-    timestamp: new Date().toISOString()
+    experimentalServerActions: process.env.NEXT_EXPERIMENTAL_SERVER_ACTIONS,
+    timestamp: new Date().toISOString(),
+    memoryUsage: process.memoryUsage(),
+    resourceLimits: process.resourceUsage()
   };
   
   console.log('Extended Environment Check:', runtimeEnv);

@@ -77,11 +77,39 @@ export class SlideGenerationService {
       throw new Error('OpenAI API key is required');
     }
 
-    this.openai = new OpenAI({ 
-      apiKey: apiKey,
-      maxRetries: 0,
-      timeout: SlideGenerationService.TIMEOUT,
+    console.log('Initializing OpenAI Client:', {
+      timestamp: new Date().toISOString(),
+      apiKeyLength: apiKey.length,
+      apiKeyPrefix: apiKey.substring(0, 7),
+      hasModelCapabilities: !!this.modelCapabilities
     });
+
+    try {
+      this.openai = new OpenAI({ 
+        apiKey: apiKey,
+        maxRetries: 0,
+        timeout: SlideGenerationService.TIMEOUT,
+      });
+
+      // Validate connection immediately
+      this.validateConnection().catch(error => {
+        console.error('OpenAI Connection Validation Failed:', {
+          error: error.message,
+          code: error.code,
+          type: error.type,
+          timestamp: new Date().toISOString()
+        });
+      });
+
+    } catch (error: any) {
+      console.error('OpenAI Client Initialization Error:', {
+        error: error.message,
+        code: error.code,
+        type: error.type,
+        timestamp: new Date().toISOString()
+      });
+      throw new Error(`Failed to initialize OpenAI client: ${error.message}`);
+    }
     
     // Remove model capability testing from constructor
     this.modelCapabilities = new Map([
@@ -89,6 +117,75 @@ export class SlideGenerationService {
       ['gpt-4-basic', true],
       ['gpt-3.5-turbo-16k-basic', true]
     ]);
+  }
+
+  private async validateConnection(): Promise<void> {
+    try {
+      console.log('Validating OpenAI Connection...', {
+        timestamp: new Date().toISOString()
+      });
+
+      const startTime = Date.now();
+      
+      // Make a minimal API call to validate connection
+      await this.openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [{ role: 'user', content: 'test' }],
+        max_tokens: 1
+      });
+
+      const duration = Date.now() - startTime;
+      
+      console.log('OpenAI Connection Validated:', {
+        durationMs: duration,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error: any) {
+      console.error('OpenAI Connection Test Failed:', {
+        error: error.message,
+        code: error.code,
+        type: error.type,
+        status: error.status,
+        timestamp: new Date().toISOString()
+      });
+      throw error;
+    }
+  }
+
+  private async executeWithRetry<T>(operation: () => Promise<T>, retryCount = 0): Promise<T> {
+    try {
+      const startTime = Date.now();
+      const result = await operation();
+      const duration = Date.now() - startTime;
+
+      console.log('OpenAI Operation Complete:', {
+        durationMs: duration,
+        retryCount,
+        timestamp: new Date().toISOString()
+      });
+
+      return result;
+    } catch (error: any) {
+      console.error('OpenAI Operation Failed:', {
+        error: error.message,
+        code: error.code,
+        type: error.type,
+        status: error.status,
+        retryCount,
+        timestamp: new Date().toISOString()
+      });
+
+      if (retryCount < SlideGenerationService.MAX_RETRIES && 
+          (error.code === 'ECONNREFUSED' || 
+           error.code === 'ENOTFOUND' || 
+           error.status === 503)) {
+        const delay = Math.min(1000 * Math.pow(2, retryCount), 5000);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.executeWithRetry(operation, retryCount + 1);
+      }
+
+      throw error;
+    }
   }
 
   private generateTaskId(task: SlideGenerationTask): string {
@@ -152,21 +249,23 @@ export class SlideGenerationService {
         timestamp: new Date().toISOString()
       });
 
-      const response = await this.openai.chat.completions.create({
-        model: modelToUse,
-        messages: [
-          { 
-            role: 'system',
-            content: 'You are an expert management consultant creating high-impact presentation slides. Respond with raw JSON only. Do not use markdown formatting, code blocks, or any other formatting. The response must be a valid JSON object that can be parsed directly.'
-          },
-          { 
-            role: 'user',
-            content: subTask.prompt
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 400
-      });
+      const response = await this.executeWithRetry(() => 
+        this.openai.chat.completions.create({
+          model: modelToUse,
+          messages: [
+            { 
+              role: 'system',
+              content: 'You are an expert management consultant creating high-impact presentation slides. Respond with raw JSON only. Do not use markdown formatting, code blocks, or any other formatting. The response must be a valid JSON object that can be parsed directly.'
+            },
+            { 
+              role: 'user',
+              content: subTask.prompt
+            }
+          ],
+          temperature: 0.7,
+          max_tokens: 400
+        })
+      );
 
       const rawContent = response.choices[0].message.content || '{}';
       
@@ -205,15 +304,10 @@ export class SlideGenerationService {
     } catch (error: any) {
       console.error('SubTask Error:', {
         type: subTask.type,
-        error: error.message,
-        model: this.selectAppropriateModel(subTask.type),
+        error: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date().toISOString()
       });
-      return {
-        type: subTask.type,
-        content: JSON.stringify(this.getFallbackResponse(subTask.type)),
-        timing: timing
-      };
+      throw error;
     } finally {
       this.endTiming(timing);
     }
@@ -443,7 +537,7 @@ export class SlideGenerationService {
       messages: [
         {
           role: 'system',
-          content: `You are an expert management consultant crafting action-oriented slide titles.
+          content: `You are an expert management consultant crafting action-oriented slide titles. 
           You must respond with valid JSON following this exact format:
           {
             "title": "Your action-oriented title here",
@@ -494,11 +588,11 @@ export class SlideGenerationService {
 
     try {
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          {
-            role: 'system',
-            content: `You are an expert in data visualization following consulting best practices.
+      model: 'gpt-4',
+      messages: [
+        {
+          role: 'system',
+          content: `You are an expert in data visualization following consulting best practices.
             You must respond with valid JSON following this exact format:
             {
               "type": "chart_type",
@@ -508,23 +602,23 @@ export class SlideGenerationService {
               "alternativeOptions": ["option1", "option2"]
             }
             
-            Key principles:
-            1. Highlight what's important - guide the reader to essential messages
-            2. Use bold elements only for emphasis
-            3. Ensure self-explanatory visualizations
-            4. Avoid pie charts unless absolutely necessary
-            5. Consider the story you're telling`
-          },
-          {
-            role: 'user',
-            content: `Recommend the best visualization based on:
-            Overview: ${data.overview}
-            Key Metrics: ${data.keyMetrics.join(', ')}
-            Trends: ${data.trends.join(', ')}
+          Key principles:
+          1. Highlight what's important - guide the reader to essential messages
+          2. Use bold elements only for emphasis
+          3. Ensure self-explanatory visualizations
+          4. Avoid pie charts unless absolutely necessary
+          5. Consider the story you're telling`
+        },
+        {
+          role: 'user',
+          content: `Recommend the best visualization based on:
+          Overview: ${data.overview}
+          Key Metrics: ${data.keyMetrics.join(', ')}
+          Trends: ${data.trends.join(', ')}
             Framework: ${framework.type}`
-          }
-        ],
-        temperature: 0.7,
+        }
+      ],
+      temperature: 0.7,
         max_tokens: 500
       });
 
@@ -533,9 +627,9 @@ export class SlideGenerationService {
         responseLength: response.choices[0].message.content?.length || 0,
         isValidJson: this.isValidJson(response.choices[0].message.content || ''),
         timestamp: new Date().toISOString()
-      });
+    });
 
-      return JSON.parse(response.choices[0].message.content || '{}');
+    return JSON.parse(response.choices[0].message.content || '{}');
     } catch (error: any) {
       console.error('Visualization Error Details:', {
         errorType: error.type,
@@ -597,14 +691,14 @@ export class SlideGenerationService {
         
         // Visualization Task
         this.openai.chat.completions.create({
-          model: 'gpt-3.5-turbo',
-          messages: [
-            {
-              role: 'system',
+        model: 'gpt-3.5-turbo',
+        messages: [
+          { 
+            role: 'system', 
               content: 'You are an expert in data visualization. Respond with raw JSON only. Do not use markdown formatting or code blocks. The response must be a valid JSON object that can be parsed directly.'
-            },
-            {
-              role: 'user',
+          },
+          { 
+            role: 'user', 
               content: `Recommend a visualization by responding with a JSON object in this exact format (no markdown, no code blocks):
               {
                 "type": "chart_type",
@@ -712,13 +806,13 @@ export class SlideGenerationService {
       const processingTiming = this.startTiming('process_subtasks');
       const results = await Promise.all(
         subTasks.map(subTask => 
-          queueService.enqueue(
-            `${taskId}-${subTask.type}`,
-            () => this.executeSubTask(subTask),
-            subTask.priority
-          )
-        )
-      );
+              queueService.enqueue(
+                `${taskId}-${subTask.type}`,
+                () => this.executeSubTask(subTask),
+                subTask.priority
+              )
+            )
+          );
       this.endTiming(processingTiming);
 
       // Parse and normalize results

@@ -25,7 +25,10 @@ const nextConfig = {
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
   experimental: {
-    serverActions: true,
+    serverActions: {
+      bodySizeLimit: '10mb',
+      allowedOrigins: ['*']
+    }
   },
   logging: {
     fetches: {

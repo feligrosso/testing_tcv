@@ -34,10 +34,10 @@ interface DataInsights {
 
 interface SlideContent {
   title: string;
-  subtitle: string;
+      subtitle: string;
   visualType: string;
   keyPoints: string[];
-  source: string;
+        source: string;
 }
 
 export default function SlideGeneratorForm() {
@@ -413,26 +413,26 @@ export default function SlideGeneratorForm() {
             <div className="mb-6">
               <span className="text-sm font-semibold text-gray-500">
                 Visualization: {slideContent.visualType}
-              </span>
-            </div>
+                </span>
+                </div>
 
-            {/* Key Points */}
+                {/* Key Points */}
             <div className="mb-6">
               <h3 className="text-lg font-semibold mb-2">Key Points:</h3>
               <ul className="list-disc pl-5 space-y-2">
                 {slideContent.keyPoints.map((point, index) => (
                   <li key={index} className="text-gray-700">
                     {point}
-                  </li>
-                ))}
-              </ul>
-            </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
 
             {/* Source */}
             <div className="text-sm text-gray-500">
               Source: {slideContent.source}
             </div>
-          </div>
+                </div>
 
           {/* Export Options */}
           <div className="flex gap-2 mt-8 justify-center">
