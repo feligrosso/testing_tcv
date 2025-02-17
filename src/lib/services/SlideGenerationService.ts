@@ -73,7 +73,7 @@ export class SlideGenerationService {
   private static readonly RETRY_DELAY = 1000;
 
   constructor(apiKey: string) {
-    console.log('API Key Validation:', {
+    console.log('Raw API Key Format:', {
         keyFormat: {
             prefix: apiKey?.substring(0, 7),
             length: apiKey?.length,
@@ -89,19 +89,20 @@ export class SlideGenerationService {
     }
 
     try {
-        // Validate key format
-        if (!apiKey.startsWith('sk-') || apiKey.startsWith('sk-proj-')) {
-            console.error('Invalid API Key Format:', {
-                error: 'Key appears to be in wrong format',
-                expectedPrefix: 'sk-',
-                actualPrefix: apiKey.substring(0, 7),
-                isProjectKey: apiKey.startsWith('sk-proj-'),
+        // Convert project-specific key format to standard OpenAI format if needed
+        let formattedKey = apiKey;
+        if (apiKey.startsWith('sk-proj-')) {
+            console.log('Converting project-specific key format to standard format');
+            formattedKey = 'sk-' + apiKey.substring('sk-proj-'.length);
+            console.log('Key Format Conversion:', {
+                originalPrefix: apiKey.substring(0, 7),
+                newPrefix: formattedKey.substring(0, 7),
                 timestamp: new Date().toISOString()
             });
         }
 
         this.openai = new OpenAI({
-            apiKey: apiKey,
+            apiKey: formattedKey,
             maxRetries: SlideGenerationService.MAX_RETRIES,
             timeout: SlideGenerationService.TIMEOUT
         });
@@ -109,6 +110,11 @@ export class SlideGenerationService {
         console.log('OpenAI Client Initialized:', {
             maxRetries: SlideGenerationService.MAX_RETRIES,
             timeout: SlideGenerationService.TIMEOUT,
+            keyFormat: {
+                prefix: formattedKey.substring(0, 7),
+                length: formattedKey.length,
+                wasConverted: formattedKey !== apiKey
+            },
             timestamp: new Date().toISOString()
         });
     } catch (error) {
@@ -119,9 +125,9 @@ export class SlideGenerationService {
                 stack: error.stack
             } : 'Unknown error',
             keyDetails: {
-                length: apiKey?.length,
-                prefix: apiKey?.substring(0, 7),
-                format: apiKey?.startsWith('sk-') ? 'standard' : 'non-standard'
+                originalLength: apiKey?.length,
+                originalPrefix: apiKey?.substring(0, 7),
+                originalFormat: apiKey?.startsWith('sk-') ? 'standard' : 'non-standard'
             },
             timestamp: new Date().toISOString()
         });
