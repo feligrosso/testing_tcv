@@ -7,9 +7,6 @@ export const preferredRegion = 'iad1';  // Washington DC for lowest latency
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-// Add performance tracking
-const performanceMetrics: { [key: string]: number } = {};
-
 // Add diagnostic logging
 console.log('Route Module Initialization:', {
   runtime,
@@ -18,8 +15,13 @@ console.log('Route Module Initialization:', {
   preferredRegion,
   timestamp: new Date().toISOString(),
   nodeVersion: process.version,
-  moduleType: import.meta.url ? 'ESM' : 'CJS'
+  moduleType: import.meta.url ? 'ESM' : 'CJS',
+  environment: process.env.NODE_ENV,
+  isVercel: process.env.VERCEL === '1'
 });
+
+// Add performance tracking
+const performanceMetrics: { [key: string]: number } = {};
 
 function startOperation(name: string) {
   performanceMetrics[`${name}_start`] = Date.now();
@@ -43,6 +45,8 @@ export const config = {
       sizeLimit: '10mb',
     },
   },
+  runtime: 'nodejs',
+  regions: ['iad1'],
 };
 
 // Validate environment variables
