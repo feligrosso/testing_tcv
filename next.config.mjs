@@ -40,11 +40,7 @@ const nextConfig = {
   poweredByHeader: false,
   compress: true,
   generateEtags: true,
-  reactStrictMode: true,
-  env: {
-    NEXT_RUNTIME: 'nodejs',
-    VERCEL_REGION: 'iad1'
-  }
+  reactStrictMode: true
 };
 
 export default nextConfig;
