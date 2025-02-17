@@ -13,34 +13,69 @@ const responseHeaders = {
 
 // Try different ways to access environment variables
 function getOpenAIKey() {
+  console.log('Environment Variables Available:', {
+    envKeys: Object.keys(process.env),
+    envCount: Object.keys(process.env).length,
+    timestamp: new Date().toISOString()
+  });
+
   const methods = {
     direct: process.env.OPENAI_API_KEY,
     processEnv: process?.env?.OPENAI_API_KEY,
     windowEnv: typeof window !== 'undefined' ? (window as any).env?.OPENAI_API_KEY : undefined,
   };
 
-  console.log('API Key Access Methods:', {
-    directExists: !!methods.direct,
-    processEnvExists: !!methods.processEnv,
-    windowEnvExists: !!methods.windowEnv,
+  // Log detailed information about each method
+  console.log('API Key Access Attempts:', {
+    direct: {
+      exists: !!methods.direct,
+      type: typeof methods.direct,
+      length: methods.direct?.length,
+      prefix: methods.direct?.substring(0, 7)
+    },
+    processEnv: {
+      exists: !!methods.processEnv,
+      type: typeof methods.processEnv,
+      length: methods.processEnv?.length,
+      prefix: methods.processEnv?.substring(0, 7)
+    },
+    windowEnv: {
+      exists: !!methods.windowEnv,
+      type: typeof methods.windowEnv,
+      length: methods.windowEnv?.length,
+      prefix: methods.windowEnv?.substring(0, 7)
+    },
     timestamp: new Date().toISOString()
   });
 
-  return methods.direct || methods.processEnv || methods.windowEnv;
+  // Try each method in sequence and log which one worked
+  const key = methods.direct || methods.processEnv || methods.windowEnv;
+  
+  if (key) {
+    console.log('API Key Found:', {
+      method: methods.direct ? 'direct' : methods.processEnv ? 'processEnv' : 'windowEnv',
+      length: key.length,
+      prefix: key.substring(0, 7),
+      timestamp: new Date().toISOString()
+    });
+  } else {
+    console.error('No API Key Found:', {
+      envVarsAvailable: Object.keys(process.env).length > 0,
+      nodeEnv: process.env.NODE_ENV,
+      isVercel: process.env.VERCEL === '1',
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  return key;
 }
 
 export async function POST(req: Request) {
-  // Log all environment variables (excluding sensitive values)
-  console.log('Full Environment Check:', {
-    envKeys: Object.keys(process.env),
-    envKeyCount: Object.keys(process.env).length,
-    hasOpenAIKey: !!process.env.OPENAI_API_KEY,
-    openAIKeyType: typeof process.env.OPENAI_API_KEY,
+  // Log environment state at the start of the request
+  console.log('Request Environment State:', {
     nodeEnv: process.env.NODE_ENV,
     isVercel: process.env.VERCEL === '1',
     vercelEnv: process.env.VERCEL_ENV,
-    vercelRegion: process.env.VERCEL_REGION,
-    vercelURL: process.env.VERCEL_URL,
     timestamp: new Date().toISOString()
   });
 
@@ -52,7 +87,7 @@ export async function POST(req: Request) {
   });
 
   try {
-    // Parse request
+    // Parse request first to validate it's properly formatted
     const reqData = await req.json();
 
     // Try to get API key using multiple methods
@@ -66,9 +101,9 @@ export async function POST(req: Request) {
           nodeEnv: process.env.NODE_ENV,
           isVercel: process.env.VERCEL === '1',
           vercelEnv: process.env.VERCEL_ENV,
-          envKeys: Object.keys(process.env),
-          processEnvType: typeof process.env,
-          apiKeyType: typeof process.env.OPENAI_API_KEY,
+          envCount: Object.keys(process.env).length,
+          hasEnvVars: Object.keys(process.env).length > 0,
+          envVarNames: Object.keys(process.env).filter(key => !key.toLowerCase().includes('key')),
         }
       };
       console.error('API Key Missing:', error);
@@ -77,14 +112,6 @@ export async function POST(req: Request) {
         headers: responseHeaders
       });
     }
-
-    // Log successful API key validation
-    console.log('API Key Validated:', {
-      keyLength: apiKey.length,
-      keyPrefix: apiKey.substring(0, 7),
-      keyType: typeof apiKey,
-      timestamp: new Date().toISOString()
-    });
 
     // Initialize service and generate slide
     const slideService = createSlideGenerationService(apiKey);
