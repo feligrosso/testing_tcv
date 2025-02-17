@@ -5,7 +5,7 @@ import { createSlideGenerationService } from '@/lib/services/SlideGenerationServ
 export const runtime = 'nodejs';
 export const preferredRegion = 'iad1';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 300; // Increased to 5 minutes for complex operations
 
 // Add production-specific configuration
 export const config = {
@@ -18,7 +18,7 @@ export const config = {
   runtime: {
     type: 'nodejs',
     regions: ['iad1'],
-    maxDuration: 60000, // 60 seconds in milliseconds
+    maxDuration: 300000, // 5 minutes in milliseconds
     memory: 1024, // 1GB memory
   },
   cache: 'no-store'
@@ -39,17 +39,24 @@ console.log('Route Module Configuration:', {
   region: process.env.VERCEL_REGION,
   experimentalServerActions: process.env.NEXT_EXPERIMENTAL_SERVER_ACTIONS,
   memoryUsage: process.memoryUsage(),
-  cpuUsage: process.cpuUsage()
+  cpuUsage: process.cpuUsage(),
+  deploymentId: process.env.VERCEL_DEPLOYMENT_ID,
+  gitCommitSha: process.env.VERCEL_GIT_COMMIT_SHA
 });
 
 // Add performance tracking
 const performanceMetrics: { [key: string]: number } = {};
+const operationStack: string[] = [];
 
 function startOperation(name: string) {
+  operationStack.push(name);
   performanceMetrics[`${name}_start`] = Date.now();
   console.log(`Starting Operation: ${name}`, {
     timestamp: new Date().toISOString(),
-    memoryUsage: process.memoryUsage()
+    memoryUsage: process.memoryUsage(),
+    operationStack: [...operationStack],
+    region: process.env.VERCEL_REGION || 'unknown',
+    deploymentId: process.env.VERCEL_DEPLOYMENT_ID || 'unknown'
   });
 }
 
@@ -57,11 +64,30 @@ function endOperation(name: string) {
   const start = performanceMetrics[`${name}_start`];
   const duration = Date.now() - start;
   performanceMetrics[`${name}_duration`] = duration;
+  
+  const stackIndex = operationStack.lastIndexOf(name);
+  if (stackIndex !== -1) {
+    operationStack.splice(stackIndex, 1);
+  }
+
   console.log(`Operation Complete - ${name}:`, {
     durationMs: duration,
     timestamp: new Date().toISOString(),
-    memoryUsage: process.memoryUsage()
+    memoryUsage: process.memoryUsage(),
+    remainingOperations: [...operationStack],
+    region: process.env.VERCEL_REGION || 'unknown',
+    deploymentId: process.env.VERCEL_DEPLOYMENT_ID || 'unknown'
   });
+
+  // Alert on long operations
+  if (duration > 5000) { // 5 seconds threshold
+    console.warn(`Long Operation Detected - ${name}:`, {
+      durationMs: duration,
+      timestamp: new Date().toISOString(),
+      operationStack: [...operationStack],
+      region: process.env.VERCEL_REGION || 'unknown'
+    });
+  }
 }
 
 // Enhanced environment validation

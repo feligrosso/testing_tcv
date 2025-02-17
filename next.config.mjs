@@ -28,13 +28,23 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: '10mb',
       allowedOrigins: ['*']
-    }
+    },
+    optimizePackageImports: ['@vercel/analytics'],
   },
   logging: {
     fetches: {
       fullUrl: true,
     },
   },
+  output: 'standalone',
+  poweredByHeader: false,
+  compress: true,
+  generateEtags: true,
+  reactStrictMode: true,
+  env: {
+    NEXT_RUNTIME: 'nodejs',
+    VERCEL_REGION: 'iad1'
+  }
 };
 
 export default nextConfig;
