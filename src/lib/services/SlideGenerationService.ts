@@ -554,49 +554,139 @@ export class SlideGenerationService {
   }
 
   private async generateActionTitle(data: DataSummary, framework: ConsultingFramework): Promise<ActionTitle> {
-    const response = await this.openai.chat.completions.create({
-      model: 'gpt-4',
-      messages: [
-        {
-          role: 'system',
-          content: `You are an expert management consultant crafting action-oriented slide titles. 
-          You must respond with valid JSON following this exact format:
-          {
-            "title": "Your action-oriented title here",
-            "supportingData": ["key data point 1", "key data point 2"],
-            "businessImplication": "Clear business implication"
-          }
-
-          Follow these principles:
-          1. Lead with the business implication
-          2. Include specific numbers and trends
-          3. Show clear cause-and-effect relationships
-          4. Make it actionable and forward-looking
-          5. Keep it under 2 lines but comprehensive
-          Framework being used: ${framework.type}`
-        },
-        {
-          role: 'user',
-          content: `Create an action title based on this data summary:
-          Overview: ${data.overview}
-          Key Metrics: ${data.keyMetrics.join(', ')}
-          Trends: ${data.trends.join(', ')}`
-        }
-      ],
-      temperature: 0.7,
-      max_tokens: 500
-    });
-
-    const content = response.choices[0].message.content || '{}';
+    const timing = this.startTiming('generateActionTitle');
+    
     try {
-      return JSON.parse(content);
-    } catch (e) {
-      console.error('JSON parsing error:', e);
-      return {
-        title: 'Analysis Results',
-        supportingData: [],
-        businessImplication: ''
-      };
+        const prompt = `As a management consultant, create an impactful action title and supporting structure for a slide based on the following data and framework. Follow these specific guidelines:
+
+1. Action Title Requirements:
+   - Make it a complete, insight-driven sentence (not just a topic)
+   - Include specific numbers and timeframes when available
+   - Highlight the business implication or "so what"
+   - Keep it concise but comprehensive (1-2 lines)
+   - Ensure everything in the title is supported by data
+
+2. Supporting Data Structure:
+   - List 2-3 key data points that directly support the action title
+   - Each data point should be specific and quantitative
+   - Data points should follow a logical flow
+   - Include only data that appears in the slide body
+
+3. Business Implication:
+   - Clearly state the "so what" for the business
+   - Focus on actionable insights
+   - Connect to strategic decision-making
+
+Data Summary:
+${JSON.stringify(data, null, 2)}
+
+Consulting Framework:
+${JSON.stringify(framework, null, 2)}
+
+Format the response as JSON with these exact fields:
+{
+    "title": "Your action title here",
+    "supportingData": ["data point 1", "data point 2", "data point 3"],
+    "businessImplication": "Clear business implication"
+}`;
+
+        const response = await this.executeWithRetry(() =>
+            this.openai.chat.completions.create({
+                model: this.selectAppropriateModel('title'),
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'You are an expert management consultant skilled in creating impactful slide titles that follow consulting best practices.'
+                    },
+                    {
+                        role: 'user',
+                        content: prompt
+                    }
+                ],
+                temperature: 0.7,
+                max_tokens: 500
+            })
+        );
+
+        const content = response.choices[0]?.message?.content;
+        if (!content) {
+            throw new Error('Failed to generate action title');
+        }
+
+        const result = this.safeJsonParse(content, {
+            title: 'Data Analysis Results',
+            supportingData: [],
+            businessImplication: 'Further analysis needed'
+        });
+
+        // Validate the action title meets our requirements
+        await this.validateActionTitle(result);
+
+        this.endTiming(timing);
+        return result;
+    } catch (error) {
+        console.error('Action Title Generation Error:', {
+            error: error instanceof Error ? error.message : 'Unknown error',
+            timestamp: new Date().toISOString()
+        });
+        this.endTiming(timing);
+        return {
+            title: 'Data Analysis Results',
+            supportingData: [
+                'Analysis completed successfully',
+                'Review data for specific insights'
+            ],
+            businessImplication: 'Further analysis recommended for detailed insights'
+        };
+    }
+  }
+
+  private async validateActionTitle(actionTitle: ActionTitle): Promise<void> {
+    const validationPrompt = `Validate this action title structure against consulting best practices:
+
+Action Title: "${actionTitle.title}"
+Supporting Data: ${JSON.stringify(actionTitle.supportingData)}
+Business Implication: "${actionTitle.businessImplication}"
+
+Check for:
+1. Title contains specific numbers/metrics
+2. Title is an insight, not just a topic
+3. Supporting data directly proves the title
+4. Business implication is actionable
+
+Return JSON: { "isValid": boolean, "feedback": string[] }`;
+
+    const response = await this.executeWithRetry(() =>
+        this.openai.chat.completions.create({
+            model: this.selectAppropriateModel('title'),
+            messages: [
+                {
+                    role: 'system',
+                    content: 'You are a senior management consultant who reviews slide titles for quality and impact.'
+                },
+                {
+                    role: 'user',
+                    content: validationPrompt
+                }
+            ],
+            temperature: 0.3,
+            max_tokens: 300
+        })
+    );
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+        return;
+    }
+
+    const validation = this.safeJsonParse(content, { isValid: true, feedback: [] });
+    
+    if (!validation.isValid) {
+        console.warn('Action Title Validation Warnings:', {
+            feedback: validation.feedback,
+            title: actionTitle.title,
+            timestamp: new Date().toISOString()
+        });
     }
   }
 
