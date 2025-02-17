@@ -63,15 +63,14 @@ export class SlideGenerationService {
   private static DEFAULT_MODEL = 'gpt-3.5-turbo';
   private modelCapabilities: Map<string, boolean> | null = null;
 
-  constructor() {
-    // Vercel environment validation
-    if (!process.env.OPENAI_API_KEY) {
+  constructor(apiKey: string) {
+    if (!apiKey) {
       console.error('OpenAI API key is not configured');
       throw new Error('OpenAI API key is required');
     }
 
     this.openai = new OpenAI({ 
-      apiKey: process.env.OPENAI_API_KEY,
+      apiKey: apiKey,
       maxRetries: 0,
       timeout: SlideGenerationService.TIMEOUT,
     });
@@ -80,6 +79,7 @@ export class SlideGenerationService {
     console.log('OpenAI Service Details:', {
       baseURL: this.openai.baseURL,
       defaultModel: SlideGenerationService.DEFAULT_MODEL,
+      hasValidKey: !!apiKey,
       timestamp: new Date().toISOString()
     });
 
@@ -635,4 +635,6 @@ Context:
   }
 }
 
-export const slideGenerationService = new SlideGenerationService(); 
+export const createSlideGenerationService = (apiKey: string) => {
+  return new SlideGenerationService(apiKey);
+}; 

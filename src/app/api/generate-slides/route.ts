@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { slideGenerationService } from '@/lib/services/SlideGenerationService';
+import { createSlideGenerationService } from '@/lib/services/SlideGenerationService';
 
 // Configure for Node.js runtime instead of Edge
 export const runtime = 'nodejs';
@@ -18,21 +18,41 @@ export const config = {
 
 // Validate environment variables
 function validateEnv() {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error('Missing required environment variable: OPENAI_API_KEY');
+  const apiKey = process.env.OPENAI_API_KEY;
+  console.log('Environment Check:', {
+    hasApiKey: !!apiKey,
+    nodeEnv: process.env.NODE_ENV,
+    timestamp: new Date().toISOString()
+  });
+
+  if (!apiKey) {
+    console.error('Environment Error:', {
+      error: 'Missing OpenAI API key',
+      availableEnvVars: Object.keys(process.env).filter(key => !key.includes('KEY')),
+      timestamp: new Date().toISOString()
+    });
+    throw new Error('OpenAI API key is required');
   }
+
+  return apiKey;
 }
 
 export async function POST(req: Request) {
   try {
-    // Validate environment variables first
+    // Validate environment variables first with enhanced logging
+    let apiKey: string;
     try {
-      validateEnv();
+      apiKey = validateEnv();
+      console.log('Environment validated successfully');
     } catch (error: any) {
-      console.error('Environment validation error:', error);
+      console.error('Environment validation error:', {
+        error: error.message,
+        stack: error.stack,
+        timestamp: new Date().toISOString()
+      });
       return NextResponse.json({
         error: true,
-        message: 'Service configuration error. Please contact support.',
+        message: 'Service configuration error. Please check server logs.',
         errorType: 'error',
         title: 'Configuration Error',
         subtitle: 'Service Misconfigured',
@@ -41,6 +61,9 @@ export async function POST(req: Request) {
         source: 'System Message'
       }, { status: 503 });
     }
+
+    // Initialize slide generation service with validated API key
+    const slideService = createSlideGenerationService(apiKey);
 
     // Parse request data
     let reqData;
@@ -104,7 +127,7 @@ export async function POST(req: Request) {
     }
 
     try {
-      const result = await slideGenerationService.generateSlide({
+      const result = await slideService.generateSlide({
         title,
         rawData,
         soWhat,
