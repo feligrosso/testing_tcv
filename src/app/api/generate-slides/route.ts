@@ -3,8 +3,24 @@ import { createSlideGenerationService } from '@/lib/services/SlideGenerationServ
 
 // Configure for Node.js runtime instead of Edge
 export const runtime = 'nodejs';
-export const maxDuration = 300; // 5 minutes timeout
+export const maxDuration = 60; // Adjusted to Vercel Hobby plan limit
 export const dynamic = 'force-dynamic';
+
+// Add performance tracking
+const performanceMetrics: { [key: string]: number } = {};
+function startOperation(name: string) {
+  performanceMetrics[`${name}_start`] = Date.now();
+}
+
+function endOperation(name: string) {
+  const start = performanceMetrics[`${name}_start`];
+  const duration = Date.now() - start;
+  performanceMetrics[`${name}_duration`] = duration;
+  console.log(`Operation Timing - ${name}:`, {
+    durationMs: duration,
+    timestamp: new Date().toISOString()
+  });
+}
 
 // Add Vercel-specific configuration
 export const config = {
@@ -15,6 +31,19 @@ export const config = {
     },
   },
 };
+
+// Add timeout handling
+const TIMEOUT_DURATION = 45000; // 45 seconds to allow for cleanup
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  const timeout = new Promise<T>((_, reject) => {
+    setTimeout(() => {
+      reject(new Error('Operation timed out'));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeout]);
+}
 
 // Validate environment variables
 function validateEnv() {
@@ -38,46 +67,63 @@ function validateEnv() {
 }
 
 export async function POST(req: Request) {
+  startOperation('total_request');
+  const abortController = new AbortController();
+  
+  // Set timeout to cleanup before Vercel's 60s limit
+  setTimeout(() => {
+    abortController.abort();
+  }, TIMEOUT_DURATION);
+
   try {
     // Validate environment variables first with enhanced logging
     let apiKey: string;
+    startOperation('env_validation');
     try {
       apiKey = validateEnv();
       console.log('Environment validated successfully');
+      endOperation('env_validation');
     } catch (error: any) {
+      endOperation('env_validation');
       console.error('Environment validation error:', {
         error: error.message,
-        stack: error.stack,
         timestamp: new Date().toISOString()
       });
       return NextResponse.json({
         error: true,
-        message: 'Service configuration error. Please check server logs.',
+        message: 'Service configuration error',
         errorType: 'error',
         title: 'Configuration Error',
         subtitle: 'Service Misconfigured',
         visualType: 'Bar Chart',
-        keyPoints: ['The service is not properly configured', 'Our team has been notified'],
+        keyPoints: ['The service is not properly configured'],
         source: 'System Message'
       }, { status: 503 });
     }
 
     // Initialize slide generation service with validated API key
+    startOperation('service_init');
     const slideService = createSlideGenerationService(apiKey);
+    endOperation('service_init');
 
-    // Parse request data
+    // Parse request data with timeout
+    startOperation('request_parsing');
     let reqData;
     try {
-      reqData = await req.json();
+      reqData = await withTimeout(req.json(), 5000);
+      endOperation('request_parsing');
     } catch (error) {
+      endOperation('request_parsing');
       return NextResponse.json({
         error: true,
-        message: 'Invalid request data format',
+        message: error instanceof Error && error.message === 'Operation timed out' 
+          ? 'Request parsing timed out' 
+          : 'Invalid request data format',
         errorType: 'error',
         title: 'Request Error',
-        subtitle: 'Invalid JSON',
+        subtitle: 'Invalid or Slow Request',
         visualType: 'Bar Chart',
-        keyPoints: ['Please ensure your request data is properly formatted'],
+        keyPoints: ['Please ensure your request data is properly formatted and not too large'],
         source: 'System Message'
       }, { status: 400 });
     }
@@ -127,20 +173,55 @@ export async function POST(req: Request) {
     }
 
     try {
-      const result = await slideService.generateSlide({
-        title,
-        rawData,
-        soWhat,
-        source,
-        audience,
-        style,
-        focusArea,
-        dataContext
+      startOperation('slide_generation');
+      const result = await withTimeout(
+        slideService.generateSlide({
+          title,
+          rawData,
+          soWhat,
+          source,
+          audience,
+          style,
+          focusArea,
+          dataContext
+        }),
+        TIMEOUT_DURATION - 5000 // Allow 5s for cleanup
+      );
+      endOperation('slide_generation');
+
+      endOperation('total_request');
+      console.log('Performance Summary:', {
+        metrics: performanceMetrics,
+        timestamp: new Date().toISOString()
       });
 
       return NextResponse.json(result);
     } catch (error: any) {
-      console.error('Slide generation error:', error);
+      endOperation('slide_generation');
+      endOperation('total_request');
+      
+      console.error('Slide generation error:', {
+        error: error.message,
+        metrics: performanceMetrics,
+        timestamp: new Date().toISOString()
+      });
+
+      if (error.message === 'Operation timed out' || error.name === 'AbortError') {
+        return NextResponse.json({
+          error: true,
+          message: 'The request took too long to process',
+          errorType: 'warning',
+          title: 'Processing Timeout',
+          subtitle: 'Request Too Complex',
+          visualType: 'Bar Chart',
+          keyPoints: [
+            'The analysis is taking longer than expected',
+            'Please try with a smaller dataset',
+            'Consider breaking your analysis into smaller parts'
+          ],
+          source: 'System Message'
+        }, { status: 408 });
+      }
 
       let status = error.status || 500;
       let message = error.message || 'An unexpected error occurred';
@@ -186,7 +267,12 @@ export async function POST(req: Request) {
       }, { status });
     }
   } catch (error: any) {
-    console.error('Unexpected error:', error);
+    endOperation('total_request');
+    console.error('Unexpected error:', {
+      error: error.message,
+      metrics: performanceMetrics,
+      timestamp: new Date().toISOString()
+    });
     
     return NextResponse.json({
       error: true,

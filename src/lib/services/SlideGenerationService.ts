@@ -55,17 +55,25 @@ interface VisualizationRecommendation {
   alternativeOptions?: string[];
 }
 
+interface OperationTiming {
+  startTime: number;
+  endTime?: number;
+  duration?: number;
+  operation: string;
+  subOperations?: OperationTiming[];
+}
+
 export class SlideGenerationService {
   private openai: OpenAI;
   private static CHUNK_SIZE = 2000;
   private static MAX_RETRIES = 3;
-  private static TIMEOUT = 60000;
+  private static TIMEOUT = 30000;
   private static DEFAULT_MODEL = 'gpt-3.5-turbo';
   private modelCapabilities: Map<string, boolean> | null = null;
+  private operationTimings: OperationTiming[] = [];
 
   constructor(apiKey: string) {
     if (!apiKey) {
-      console.error('OpenAI API key is not configured');
       throw new Error('OpenAI API key is required');
     }
 
@@ -75,53 +83,12 @@ export class SlideGenerationService {
       timeout: SlideGenerationService.TIMEOUT,
     });
     
-    // Enhanced initialization logging
-    console.log('OpenAI Service Details:', {
-      baseURL: this.openai.baseURL,
-      defaultModel: SlideGenerationService.DEFAULT_MODEL,
-      hasValidKey: !!apiKey,
-      timestamp: new Date().toISOString()
-    });
-
-    // Test model capabilities
-    this.validateModelCapabilities();
-  }
-
-  private async validateModelCapabilities() {
-    try {
-      const models = ['gpt-3.5-turbo', 'gpt-4', 'gpt-3.5-turbo-16k'];
-      const capabilities = new Map<string, boolean>();
-
-      for (const model of models) {
-        try {
-          // Only test basic completion
-          const basicTest = await this.openai.chat.completions.create({
-            model,
-            messages: [{ role: 'user', content: 'Test' }],
-            max_tokens: 5
-          });
-          capabilities.set(`${model}-basic`, true);
-        } catch (error: any) {
-          capabilities.set(`${model}-basic`, false);
-          console.error(`Model ${model} test failed:`, error.message);
-        }
-      }
-
-      console.log('Model Capabilities Analysis:', {
-        capabilities: Object.fromEntries(capabilities),
-        timestamp: new Date().toISOString()
-      });
-
-      // Store results for later use
-      this.modelCapabilities = capabilities;
-    } catch (error: any) {
-      console.error('Model capability validation failed:', {
-        error: error.message,
-        type: error.type,
-        code: error.code,
-        timestamp: new Date().toISOString()
-      });
-    }
+    // Remove model capability testing from constructor
+    this.modelCapabilities = new Map([
+      ['gpt-3.5-turbo-basic', true],
+      ['gpt-4-basic', true],
+      ['gpt-3.5-turbo-16k-basic', true]
+    ]);
   }
 
   private generateTaskId(task: SlideGenerationTask): string {
@@ -129,78 +96,126 @@ export class SlideGenerationService {
     return randomUUID();
   }
 
+  private startTiming(operation: string): OperationTiming {
+    const timing: OperationTiming = {
+      startTime: Date.now(),
+      operation
+    };
+    this.operationTimings.push(timing);
+    return timing;
+  }
+
+  private endTiming(timing: OperationTiming) {
+    timing.endTime = Date.now();
+    timing.duration = timing.endTime - timing.startTime;
+    console.log(`API Operation Timing - ${timing.operation}:`, {
+      durationMs: timing.duration,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  // Add helper method to clean JSON responses
+  private cleanJsonResponse(content: string): string {
+    // Remove markdown code blocks if present
+    if (content.includes('```')) {
+      content = content.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+    }
+    
+    // Remove any leading/trailing whitespace
+    content = content.trim();
+    
+    // If the content starts with a newline or contains markdown, clean it
+    if (content.startsWith('\n') || content.includes('```')) {
+      content = content.replace(/^\n+|\n+$/g, '');
+    }
+    
+    // Attempt to find JSON object if there's additional text
+    const jsonStart = content.indexOf('{');
+    const jsonEnd = content.lastIndexOf('}');
+    
+    if (jsonStart !== -1 && jsonEnd !== -1) {
+      content = content.slice(jsonStart, jsonEnd + 1);
+    }
+    
+    return content;
+  }
+
   private async executeSubTask(subTask: SubTask): Promise<any> {
-    const startTime = Date.now();
+    const timing = this.startTiming(`subtask_${subTask.type}`);
     try {
       const modelToUse = this.selectAppropriateModel(subTask.type);
 
-      const requestConfig: ChatCompletionCreateParamsNonStreaming = {
+      console.log('SubTask Request:', {
+        type: subTask.type,
+        model: modelToUse,
+        promptLength: subTask.prompt.length,
+        timestamp: new Date().toISOString()
+      });
+
+      const response = await this.openai.chat.completions.create({
         model: modelToUse,
         messages: [
           { 
-            role: 'system' as const, 
-            content: `You are an expert management consultant creating high-impact presentation slides.
-            You must respond with valid JSON exactly matching the format specified in the user's prompt.
-            Do not include any additional text or explanations outside the JSON structure.` 
+            role: 'system',
+            content: 'You are an expert management consultant creating high-impact presentation slides. Respond with raw JSON only. Do not use markdown formatting, code blocks, or any other formatting. The response must be a valid JSON object that can be parsed directly.'
           },
           { 
-            role: 'user' as const, 
+            role: 'user',
             content: subTask.prompt
           }
         ],
         temperature: 0.7,
         max_tokens: 400
-      };
-
-      console.log('SubTask Request Details:', {
-        type: subTask.type,
-        model: modelToUse,
-        timestamp: new Date().toISOString(),
-        promptLength: subTask.prompt.length
       });
 
-      const response = await this.openai.chat.completions.create(requestConfig);
+      const rawContent = response.choices[0].message.content || '{}';
       
-      console.log('SubTask Response Details:', {
+      // Log raw response for debugging
+      console.log('Raw API Response:', {
         type: subTask.type,
-        model: response.model,
-        responseLength: response.choices[0].message.content?.length || 0,
-        finishReason: response.choices[0].finish_reason,
+        content: rawContent.slice(0, 100) + '...',
+        hasMarkdown: rawContent.includes('```'),
         timestamp: new Date().toISOString()
       });
 
-      const content = response.choices[0].message.content || '{}';
+      // Clean response if needed
+      const cleanContent = this.cleanJsonResponse(rawContent);
       
       try {
-        const jsonResponse = JSON.parse(content);
+        const jsonResponse = JSON.parse(cleanContent);
         return {
           type: subTask.type,
-          content: JSON.stringify(jsonResponse)
+          content: JSON.stringify(jsonResponse),
+          timing: timing
         };
       } catch (e) {
-        console.error('Invalid JSON response:', {
-          content: content.slice(0, 100) + '...',
-          error: e instanceof Error ? e.message : 'Unknown error'
+        console.error('JSON Parsing Error:', {
+          type: subTask.type,
+          error: e instanceof Error ? e.message : 'Unknown error',
+          rawContent: rawContent.slice(0, 100) + '...',
+          cleanContent: cleanContent.slice(0, 100) + '...',
+          timestamp: new Date().toISOString()
         });
         return {
           type: subTask.type,
-          content: JSON.stringify(this.getFallbackResponse(subTask.type))
+          content: JSON.stringify(this.getFallbackResponse(subTask.type)),
+          timing: timing
         };
       }
     } catch (error: any) {
-      console.error('SubTask Error Details:', {
+      console.error('SubTask Error:', {
         type: subTask.type,
-        errorType: error.type,
-        errorCode: error.code,
-        errorMessage: error.message,
-        modelUsed: this.selectAppropriateModel(subTask.type),
+        error: error.message,
+        model: this.selectAppropriateModel(subTask.type),
         timestamp: new Date().toISOString()
       });
-
       return {
         type: subTask.type,
-        content: JSON.stringify(this.getFallbackResponse(subTask.type))
+        content: JSON.stringify(this.getFallbackResponse(subTask.type)),
+        timing: timing
       };
+    } finally {
+      this.endTiming(timing);
     }
   }
 
@@ -209,10 +224,40 @@ export class SlideGenerationService {
       title: { title: 'Analysis Results' },
       keyPoints: { points: ['Data analysis in progress'] },
       recommendations: { recommendations: ['Analysis pending'] },
-      visualization: { visualType: 'Bar Chart', highlights: [] },
+      visualization: { type: 'Bar Chart', keyElements: [] },
       summary: { overview: 'Analysis pending', keyPoints: [] }
     };
     return fallbacks[type];
+  }
+
+  private normalizeResponse(type: SubTask['type'], response: any): any {
+    // Ensure consistent response structure
+    switch (type) {
+      case 'title':
+        return {
+          title: response.title || 'Analysis Results'
+        };
+      case 'keyPoints':
+        // Handle both points and key_points formats
+        return {
+          points: response.points || response.key_points || ['No key points available']
+        };
+      case 'visualization':
+        return {
+          type: response.type || 'Bar Chart',
+          keyElements: response.keyElements || []
+        };
+      case 'recommendations':
+        // Handle both array and object formats
+        const recs = Array.isArray(response.recommendations) 
+          ? response.recommendations 
+          : [response.recommendations];
+        return {
+          recommendations: recs.map((r: any) => typeof r === 'object' ? r.description || r : r)
+        };
+      default:
+        return response;
+    }
   }
 
   private async validatePromptEffectiveness(prompt: string, response: any): Promise<void> {
@@ -513,109 +558,230 @@ export class SlideGenerationService {
   }
 
   private async createSubTasks(task: SlideGenerationTask): Promise<SubTask[]> {
-    // Run initial analysis in parallel
-    const [dataSummary, framework] = await Promise.all([
-        this.summarizeData(task.rawData),
-        this.getConsultingFramework({
-            overview: '',
-            keyMetrics: [],
-            trends: []
-        }) // Start with empty summary to avoid waiting
-    ]);
+    const timing = this.startTiming('create_subtasks');
+    try {
+      console.log('Starting SubTasks Creation:', {
+        dataLength: task.rawData.length,
+        timestamp: new Date().toISOString()
+      });
 
-    // Run second phase analysis in parallel
-    const [actionTitle, visualization] = await Promise.all([
-        this.generateActionTitle(dataSummary, framework),
-        this.recommendVisualization(dataSummary, framework)
-    ]);
-    
-    const dataChunks = this.splitData(task.rawData);
-    const subTasks: SubTask[] = [];
+      // Run data analysis and visualization tasks in parallel
+      const [analysisResult, visualizationResult] = await Promise.all([
+        // Data Analysis Task
+        this.openai.chat.completions.create({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an expert data analyst and management consultant. Respond with raw JSON only. Do not use markdown formatting or code blocks. The response must be a valid JSON object that can be parsed directly.'
+            },
+            {
+              role: 'user',
+              content: `Analyze this data and respond with a JSON object in this exact format (no markdown, no code blocks):
+              {
+                "overview": "brief overview text",
+                "keyMetrics": ["metric1", "metric2"],
+                "trends": ["trend1", "trend2"],
+                "framework": {
+                  "type": "pyramid|mece|driver-tree",
+                  "elements": ["element1", "element2"]
+                }
+              }
+              
+              Data: ${task.rawData}`
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: 500
+        }),
+        
+        // Visualization Task
+        this.openai.chat.completions.create({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an expert in data visualization. Respond with raw JSON only. Do not use markdown formatting or code blocks. The response must be a valid JSON object that can be parsed directly.'
+            },
+            {
+              role: 'user',
+              content: `Recommend a visualization by responding with a JSON object in this exact format (no markdown, no code blocks):
+              {
+                "type": "chart_type",
+                "keyElements": ["element1", "element2"]
+              }
+              
+              Data: ${task.rawData}`
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: 200
+        })
+      ]);
 
-    const contextPrompt = `
-Context:
-- Audience: ${task.audience || 'General business audience'}
-- Style: ${task.style || 'Professional'}
-- Focus Area: ${task.focusArea || 'General analysis'}
-- Data Context: ${task.dataContext || 'Business data'}
-- Framework: ${framework.type}
-- Business Implication: ${actionTitle.businessImplication}
-`;
+      // Log raw responses
+      const analysisRaw = analysisResult.choices[0].message.content || '{}';
+      const visualizationRaw = visualizationResult.choices[0].message.content || '{}';
 
-    // Simplified prompts for faster processing
-    subTasks.push({
-        type: 'title',
-        prompt: `Create a concise JSON title response: {"title": "${actionTitle.title}", "supportingPoints": ${JSON.stringify(actionTitle.supportingData)}}`,
-        priority: 4
-    });
+      console.log('Analysis Raw Response:', {
+        content: analysisRaw.slice(0, 100) + '...',
+        hasMarkdown: analysisRaw.includes('```'),
+        length: analysisRaw.length,
+        timestamp: new Date().toISOString()
+      });
 
-    // Process only the first chunk for speed
-    const firstChunk = dataChunks[0];
-    subTasks.push({
-        type: 'keyPoints',
-        prompt: `Generate a JSON with 3 key insights. Format: {"points": ["Point 1", "Point 2", "Point 3"]}. Data: ${firstChunk}`,
-        priority: 3
-    });
+      console.log('Visualization Raw Response:', {
+        content: visualizationRaw.slice(0, 100) + '...',
+        hasMarkdown: visualizationRaw.includes('```'),
+        length: visualizationRaw.length,
+        timestamp: new Date().toISOString()
+      });
 
-    subTasks.push({
-        type: 'visualization',
-        prompt: `Create JSON visualization spec: {"visualType": "${visualization.type}", "highlights": ${JSON.stringify(visualization.keyElements)}}`,
-        priority: 2
-    });
+      // Clean and parse responses
+      const analysisClean = this.cleanJsonResponse(analysisRaw);
+      const visualizationClean = this.cleanJsonResponse(visualizationRaw);
 
-    subTasks.push({
-        type: 'recommendations',
-        prompt: `Create JSON with 2 recommendations: {"recommendations": ["Recommendation 1", "Recommendation 2"]}`,
-        priority: 1
-    });
+      console.log('Cleaned Responses:', {
+        analysisModified: analysisRaw !== analysisClean,
+        visualizationModified: visualizationRaw !== visualizationClean,
+        timestamp: new Date().toISOString()
+      });
 
-    return subTasks;
+      const analysis = JSON.parse(analysisClean);
+      const visualization = JSON.parse(visualizationClean);
+      
+      // Create optimized subtasks with pre-analyzed data
+      const subTasks: SubTask[] = [
+        {
+          type: 'title',
+          prompt: `Create a title based on this JSON data (respond with raw JSON, no markdown): ${JSON.stringify({
+            overview: analysis.overview,
+            metrics: analysis.keyMetrics,
+            framework: analysis.framework
+          })}`,
+          priority: 4
+        },
+        {
+          type: 'keyPoints',
+          prompt: `Generate 3 key points based on this JSON data (respond with raw JSON, no markdown): ${JSON.stringify({
+            metrics: analysis.keyMetrics,
+            trends: analysis.trends
+          })}`,
+          priority: 3
+        },
+        {
+          type: 'visualization',
+          prompt: `Use this visualization config (respond with raw JSON, no markdown): ${JSON.stringify(visualization)}`,
+          priority: 2
+        },
+        {
+          type: 'recommendations',
+          prompt: `Provide 2 recommendations based on this overview (respond with raw JSON, no markdown): ${analysis.overview}`,
+          priority: 1
+        }
+      ];
+
+      return subTasks;
+    } catch (error: any) {
+      console.error('SubTasks Creation Error:', {
+        error: error.message,
+        stack: error.stack,
+        timestamp: new Date().toISOString()
+      });
+      throw error;
+    } finally {
+      this.endTiming(timing);
+    }
   }
 
   async generateSlide(task: SlideGenerationTask) {
+    const timing = this.startTiming('generate_slide');
     const taskId = this.generateTaskId(task);
     
     try {
-        // Create subtasks with optimized prompts
-        const subTasks = await this.createSubTasks(task);
-        
-        // Process all tasks in parallel for speed
-        const results = await Promise.all(
-            subTasks.map(subTask => 
-                queueService.enqueue(
-                    `${taskId}-${subTask.type}`,
-                    () => this.executeSubTask(subTask),
-                    subTask.priority
-                )
-            )
-        );
+      const subTaskTiming = this.startTiming('create_subtasks');
+      const subTasks = await this.createSubTasks(task);
+      this.endTiming(subTaskTiming);
 
-        // Parse results
-        const titleResult = results.find(r => r.type === 'title')?.content;
-        const keyPointsResult = results.find(r => r.type === 'keyPoints')?.content;
-        const visualizationResult = results.find(r => r.type === 'visualization')?.content;
-        const recommendationsResult = results.find(r => r.type === 'recommendations')?.content;
+      console.log('Starting Parallel Processing:', {
+        numberOfTasks: subTasks.length,
+        taskTypes: subTasks.map(t => t.type),
+        timestamp: new Date().toISOString()
+      });
 
-        // Use faster parsing with default values
-        const parsedTitle = this.safeJsonParse(titleResult, { title: task.title || 'Analysis Results', supportingPoints: [] });
-        const parsedKeyPoints = this.safeJsonParse(keyPointsResult, { points: [] });
-        const parsedVisualization = this.safeJsonParse(visualizationResult, { visualType: 'Bar Chart', highlights: [] });
-        const parsedRecommendations = this.safeJsonParse(recommendationsResult, { recommendations: [] });
+      const processingTiming = this.startTiming('process_subtasks');
+      const results = await Promise.all(
+        subTasks.map(subTask => 
+          queueService.enqueue(
+            `${taskId}-${subTask.type}`,
+            () => this.executeSubTask(subTask),
+            subTask.priority
+          )
+        )
+      );
+      this.endTiming(processingTiming);
 
-        return {
-            title: parsedTitle.title,
-            subtitle: task.soWhat || 'Key Insights',
-            visualType: parsedVisualization.visualType,
-            visualHighlights: parsedVisualization.highlights,
-            keyPoints: parsedKeyPoints.points.slice(0, 3),
-            recommendations: parsedRecommendations.recommendations.slice(0, 2),
-            source: task.source || 'Data Analysis',
-            audience: task.audience || 'General business audience',
-            style: task.style || 'Professional'
-        };
+      // Parse and normalize results
+      const titleResult = results.find(r => r.type === 'title');
+      const keyPointsResult = results.find(r => r.type === 'keyPoints');
+      const visualizationResult = results.find(r => r.type === 'visualization');
+      const recommendationsResult = results.find(r => r.type === 'recommendations');
+
+      console.log('Raw Results:', {
+        title: titleResult?.content,
+        keyPoints: keyPointsResult?.content,
+        visualization: visualizationResult?.content,
+        recommendations: recommendationsResult?.content,
+        timestamp: new Date().toISOString()
+      });
+
+      // Parse and normalize each result
+      const parsedTitle = this.normalizeResponse('title', 
+        this.safeJsonParse(titleResult?.content, this.getFallbackResponse('title'))
+      );
+      
+      const parsedKeyPoints = this.normalizeResponse('keyPoints',
+        this.safeJsonParse(keyPointsResult?.content, this.getFallbackResponse('keyPoints'))
+      );
+      
+      const parsedVisualization = this.normalizeResponse('visualization',
+        this.safeJsonParse(visualizationResult?.content, this.getFallbackResponse('visualization'))
+      );
+      
+      const parsedRecommendations = this.normalizeResponse('recommendations',
+        this.safeJsonParse(recommendationsResult?.content, this.getFallbackResponse('recommendations'))
+      );
+
+      console.log('Normalized Results:', {
+        title: parsedTitle,
+        keyPoints: parsedKeyPoints,
+        visualization: parsedVisualization,
+        recommendations: parsedRecommendations,
+        timestamp: new Date().toISOString()
+      });
+
+      const result = {
+        title: parsedTitle.title,
+        subtitle: task.soWhat || 'Key Insights',
+        visualType: parsedVisualization.type,
+        visualHighlights: parsedVisualization.keyElements,
+        keyPoints: (parsedKeyPoints.points || []).slice(0, 3),
+        recommendations: (parsedRecommendations.recommendations || []).slice(0, 2),
+        source: task.source || 'Data Analysis',
+        audience: task.audience || 'General business audience',
+        style: task.style || 'Professional'
+      };
+
+      return result;
     } catch (error: any) {
-        console.error('Slide generation error:', error);
-        throw new Error(`Slide generation failed: ${error.message}`);
+      console.error('Slide Generation Error:', {
+        error: error.message,
+        timings: this.operationTimings,
+        timestamp: new Date().toISOString()
+      });
+      throw error;
+    } finally {
+      this.endTiming(timing);
     }
   }
 
