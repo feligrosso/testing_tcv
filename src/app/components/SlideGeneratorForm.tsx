@@ -18,13 +18,33 @@ interface FormError {
   type: 'error' | 'warning' | 'info';
 }
 
+interface SlideVariation {
+  variationName: string;
+  targetAudience: string;
+  slide: {
+    actionTitle: string;
+    subtitle: string;
+    visualization: {
+      type: string;
+      description: string;
+      emphasis: string[];
+      layout: string;
+    };
+    keyPoints: {
+      point: string;
+      emphasis: boolean;
+    }[];
+    footer: {
+      source: string;
+      disclaimers: string[];
+      date: string;
+    };
+  };
+}
+
 interface SlideContent {
-  title: string;
-  subtitle?: string;
-  visualization: string;
-  key_points: string[];
-  so_what: string;
-  recommendations?: string[];
+  variations: SlideVariation[];
+  exportOptions: string[];
 }
 
 export default function SlideGeneratorForm() {
@@ -88,26 +108,45 @@ export default function SlideGeneratorForm() {
     setFormError({ show: false, message: '', type: 'error' });
     setSlideContent(null);
     
-    // Validate form
     if (!validateForm()) {
       return;
     }
 
     setIsLoading(true);
-    setFormError({
-      show: true,
-      message: 'Generating your slide...',
-      type: 'info'
-    });
+    
+    // Show progressive loading states
+    const loadingStates = [
+      'Analyzing your data...',
+      'Crafting action title...',
+      'Designing visualization...',
+      'Generating key points...',
+      'Finalizing slide content...'
+    ];
+    
+    let loadingStateIndex = 0;
+    const loadingInterval = setInterval(() => {
+      setFormError({
+        show: true,
+        message: loadingStates[loadingStateIndex],
+        type: 'info'
+      });
+      loadingStateIndex = (loadingStateIndex + 1) % loadingStates.length;
+    }, 3000);
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30-second timeout
+
       const response = await fetch('/api/generate-slides', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(formData),
+        signal: controller.signal
       });
+
+      clearTimeout(timeoutId);
 
       const data = await response.json();
 
@@ -129,6 +168,7 @@ export default function SlideGeneratorForm() {
         type: 'error'
       });
     } finally {
+      clearInterval(loadingInterval);
       setIsLoading(false);
     }
   };
@@ -301,51 +341,104 @@ export default function SlideGeneratorForm() {
       {/* Display Generated Content */}
       {slideContent && (
         <motion.div
-          className="mt-8 p-6 bg-white rounded-xl shadow-lg border border-gray-100"
+          className="mt-8 space-y-8"
           initial={mounted ? { opacity: 0, y: 20 } : false}
           animate={mounted ? { opacity: 1, y: 0 } : false}
           transition={{ duration: 0.3 }}
         >
-          <h3 className="text-xl font-georgia text-v2a-blue mb-4">Generated Slide Content</h3>
+          <h3 className="text-xl font-georgia text-v2a-blue mb-4">Generated Slide Variations</h3>
           
-          <div className="space-y-4">
-            <div>
-              <h4 className="font-georgia text-gray-700">Title</h4>
-              <p className="text-gray-900">{slideContent.title}</p>
-              {slideContent.subtitle && (
-                <p className="text-gray-600 mt-1">{slideContent.subtitle}</p>
-              )}
-            </div>
+          <div className="grid grid-cols-1 gap-8">
+            {slideContent.variations.map((variation, index) => (
+              <div 
+                key={index}
+                className="p-6 bg-white rounded-xl shadow-lg border border-gray-100"
+              >
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h4 className="text-lg font-georgia text-v2a-blue">{variation.variationName}</h4>
+                    <p className="text-sm text-gray-600">Target Audience: {variation.targetAudience}</p>
+                  </div>
+                  <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-sm">
+                    Variation {index + 1}
+                  </span>
+                </div>
 
-            <div>
-              <h4 className="font-georgia text-gray-700">Visualization Suggestion</h4>
-              <p className="text-gray-900">{slideContent.visualization}</p>
-            </div>
+                <div className="space-y-6">
+                  {/* Action Title and Subtitle */}
+                  <div>
+                    <h4 className="font-georgia text-gray-900 text-xl font-bold">{variation.slide.actionTitle}</h4>
+                    <p className="text-gray-700 mt-1">{variation.slide.subtitle}</p>
+                  </div>
 
-            <div>
-              <h4 className="font-georgia text-gray-700">Key Points</h4>
-              <ul className="list-disc pl-5 space-y-1">
-                {slideContent.key_points.map((point, index) => (
-                  <li key={index} className="text-gray-900">{point}</li>
-                ))}
-              </ul>
-            </div>
+                  {/* Visualization */}
+                  <div>
+                    <h4 className="font-georgia text-gray-700 mb-2">Visualization</h4>
+                    <div className="bg-gray-50 p-4 rounded-lg">
+                      <p className="font-bold mb-2">Type: {variation.slide.visualization.type}</p>
+                      <p className="text-gray-900 mb-3">{variation.slide.visualization.description}</p>
+                      {variation.slide.visualization.emphasis.length > 0 && (
+                        <div>
+                          <p className="font-bold mb-1">Key Emphasis:</p>
+                          <ul className="list-disc pl-5">
+                            {variation.slide.visualization.emphasis.map((point, i) => (
+                              <li key={i} className="text-gray-900">{point}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      <p className="text-gray-600 mt-2">Layout: {variation.slide.visualization.layout}</p>
+                    </div>
+                  </div>
 
-            <div>
-              <h4 className="font-georgia text-gray-700">So What?</h4>
-              <p className="text-gray-900">{slideContent.so_what}</p>
-            </div>
+                  {/* Key Points */}
+                  <div>
+                    <h4 className="font-georgia text-gray-700 mb-2">Key Points</h4>
+                    <ul className="space-y-2">
+                      {variation.slide.keyPoints.map((point, i) => (
+                        <li 
+                          key={i} 
+                          className={`flex items-start ${point.emphasis ? 'font-bold' : ''}`}
+                        >
+                          <span className="text-v2a-blue mr-2">•</span>
+                          <span className="text-gray-900">{point.point}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
 
-            {slideContent.recommendations && slideContent.recommendations.length > 0 && (
-              <div>
-                <h4 className="font-georgia text-gray-700">Recommendations</h4>
-                <ul className="list-disc pl-5 space-y-1">
-                  {slideContent.recommendations.map((rec, index) => (
-                    <li key={index} className="text-gray-900">{rec}</li>
-                  ))}
-                </ul>
+                  {/* Footer Information */}
+                  <div className="border-t pt-4 mt-6">
+                    <div className="text-sm text-gray-600">
+                      <p className="mb-1">Source: {variation.slide.footer.source}</p>
+                      {variation.slide.footer.disclaimers.length > 0 && (
+                        <div className="mb-1">
+                          <p className="font-bold mb-1">Disclaimers:</p>
+                          <ul className="list-disc pl-5">
+                            {variation.slide.footer.disclaimers.map((disclaimer, i) => (
+                              <li key={i}>{disclaimer}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      <p>Analysis Date: {variation.slide.footer.date}</p>
+                    </div>
+                  </div>
+                </div>
               </div>
-            )}
+            ))}
+          </div>
+
+          {/* Export Options */}
+          <div className="flex gap-2 mt-8 justify-center">
+            {slideContent.exportOptions.map((format) => (
+              <button
+                key={format}
+                className="px-6 py-2 bg-v2a-blue text-white rounded-lg hover:bg-v2a-light-blue transition-colors shadow-sm"
+              >
+                Export as {format}
+              </button>
+            ))}
           </div>
         </motion.div>
       )}

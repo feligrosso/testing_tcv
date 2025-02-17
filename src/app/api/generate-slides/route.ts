@@ -38,44 +38,71 @@ export async function POST(req: Request) {
     }
 
     // Construct the prompt for slide generation
-    const prompt = `Create a professional PowerPoint slide based on the following information:
+    const prompt = `Create 3 DIFFERENT consulting slides analyzing the same data. Each slide must have a completely different approach and insight:
 
 Title: ${title}
-
-Raw Data:
-${rawData}
-
-Key Insight ("So What?"):
-${soWhat}
-
+Data: ${rawData}
+Key Insight: ${soWhat}
 Source: ${source || 'Internal Analysis'}
 
-Please structure the response in the following JSON format:
-{
-  "title": "Refined slide title",
-  "subtitle": "Optional subtitle if needed",
-  "visualization": "Detailed description of how to visualize the data",
-  "key_points": ["List of key points to highlight"],
-  "so_what": "Refined and impactful conclusion",
-  "recommendations": ["Optional list of recommendations if applicable"]
-}
+Requirements for EACH slide:
+1. Action Title: Complete sentence with key insight (1-2 lines)
+2. Subtitle: Data supporting the title (1 line)
+3. Visualization: Left-aligned, NO pie charts, clear labels/units
+4. Key Points: 3-5 right-aligned bullet points supporting title
+5. Footer: Source, disclaimers, date
 
-Make the title concise but impactful, and ensure the visualization suggestion is specific and actionable.`;
+IMPORTANT: Each slide must:
+- Focus on a different aspect of the data
+- Use a different type of visualization
+- Draw different conclusions
+- Target different stakeholder perspectives
+
+JSON Response Format:
+{
+  "variations": [
+    {
+      "variationName": "string (e.g., 'Trend Analysis', 'Comparative View', 'Impact Assessment')",
+      "targetAudience": "string (e.g., 'Executive Leadership', 'Operations Team', 'Stakeholders')",
+      "slide": {
+        "actionTitle": "string",
+        "subtitle": "string",
+        "visualization": {
+          "type": "string",
+          "description": "string",
+          "emphasis": ["string"],
+          "layout": "string"
+        },
+        "keyPoints": [{"point": "string", "emphasis": boolean}],
+        "footer": {
+          "source": "string",
+          "disclaimers": ["string"],
+          "date": "string"
+        }
+      }
+    }
+  ],
+  "exportOptions": ["PDF", "PNG", "PPTX"]
+}`;
 
     console.log("Sending prompt to Replicate");
 
     try {
-      // Call Replicate with a different model that's better suited for text generation
+      // Call Replicate with optimized parameters for faster generation
       const output = await replicate.run(
-        "meta/llama-2-70b-chat:02e509c789964a7ea8736978a43525956ef40397be9033abf9fd2badfe68c9e3",
+        // Using a smaller but faster model
+        "meta/llama-2-13b-chat:f4e2de70d66816a838a89eeeb621910adffb0dd0baba3976c96980970978018d",
         {
           input: {
             prompt,
-            max_length: 1024,
-            temperature: 0.7,
-            top_p: 0.8,
-            repetition_penalty: 1,
-            system_prompt: "You are an expert consultant who creates professional PowerPoint slides. Your responses should be in valid JSON format.",
+            max_length: 2000, // Increased for multiple variations
+            temperature: 0.8, // Increased for more variety
+            top_p: 0.9,
+            repetition_penalty: 1.2, // Increased to avoid similar outputs
+            top_k: 50,
+            presence_penalty: 0.2, // Increased to encourage diversity
+            frequency_penalty: 0.2,
+            system_prompt: "You are an expert management consultant who creates diverse and insightful PowerPoint slides following McKinsey and BCG best practices. Generate distinct analytical approaches for the same data. Your responses should be in valid JSON format.",
           },
         }
       );
@@ -107,9 +134,16 @@ Make the title concise but impactful, and ensure the visualization suggestion is
         slideContent = JSON.parse(jsonStr);
         
         // Validate the required fields in the response
-        if (!slideContent.title || !slideContent.visualization || !slideContent.key_points || !slideContent.so_what) {
-          throw new Error("Missing required fields in the model's response");
+        if (!slideContent.variations || !Array.isArray(slideContent.variations) || slideContent.variations.length !== 3) {
+          throw new Error("Response must contain exactly 3 slide variations");
         }
+
+        // Validate each variation
+        slideContent.variations.forEach((variation: { variationName: string; targetAudience: string; slide: any }, index: number) => {
+          if (!variation.variationName || !variation.targetAudience || !variation.slide) {
+            throw new Error(`Missing required fields in variation ${index + 1}`);
+          }
+        });
 
         return NextResponse.json(slideContent);
       } catch (error) {
