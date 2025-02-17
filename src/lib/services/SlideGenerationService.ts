@@ -1,6 +1,5 @@
 import OpenAI from 'openai';
 import { queueService } from './QueueService';
-import { randomUUID } from 'crypto';
 import { ChatCompletionMessage, ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat/completions';
 
 interface SlideGenerationTask {
@@ -188,9 +187,24 @@ export class SlideGenerationService {
     }
   }
 
-  private generateTaskId(task: SlideGenerationTask): string {
-    // Use randomUUID instead of crypto.createHash for better compatibility
-    return randomUUID();
+  private generateUUID(): string {
+    // Generate 16 random bytes
+    const array = new Uint8Array(16);
+    crypto.getRandomValues(array);
+    
+    // Set version (4) and variant bits
+    array[6] = (array[6] & 0x0f) | 0x40;  // Version 4
+    array[8] = (array[8] & 0x3f) | 0x80;  // Variant 1
+    
+    // Convert to hex string with proper UUID format
+    return Array.from(array)
+      .map((b, i) => {
+        const hex = b.toString(16).padStart(2, '0');
+        // Add dashes according to UUID format
+        if (i === 4 || i === 6 || i === 8 || i === 10) return '-' + hex;
+        return hex;
+      })
+      .join('');
   }
 
   private startTiming(operation: string): OperationTiming {
@@ -790,7 +804,7 @@ export class SlideGenerationService {
 
   async generateSlide(task: SlideGenerationTask) {
     const timing = this.startTiming('generate_slide');
-    const taskId = this.generateTaskId(task);
+    const taskId = this.generateUUID();
     
     try {
       const subTaskTiming = this.startTiming('create_subtasks');

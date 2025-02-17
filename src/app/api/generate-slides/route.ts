@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
 import { createSlideGenerationService } from '@/lib/services/SlideGenerationService';
 
+// Add runtime environment diagnostics
+console.log('Route Module Environment:', {
+  runtime: process.env.NEXT_RUNTIME,
+  isEdge: process.env.NEXT_RUNTIME === 'edge',
+  hasNodeCrypto: typeof process !== 'undefined' && !!process.versions?.node,
+  hasWebCrypto: typeof crypto !== 'undefined',
+  timestamp: new Date().toISOString()
+});
+
 // Configure for optimized Node.js runtime with explicit settings
 export const runtime = 'edge';
 export const preferredRegion = 'iad1';
