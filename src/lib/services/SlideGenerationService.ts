@@ -557,25 +557,34 @@ export class SlideGenerationService {
     const timing = this.startTiming('generateActionTitle');
     
     try {
-        const prompt = `As a management consultant, create an impactful action title and supporting structure for a slide based on the following data and framework. Follow these specific guidelines:
+        const prompt = `As a McKinsey-trained management consultant, analyze this data and create a compelling action title that demonstrates clear strategic reasoning. Follow these specific guidelines:
 
-1. Action Title Requirements:
-   - Make it a complete, insight-driven sentence (not just a topic)
-   - Include specific numbers and timeframes when available
-   - Highlight the business implication or "so what"
-   - Keep it concise but comprehensive (1-2 lines)
-   - Ensure everything in the title is supported by data
+1. Title Structure (Critical):
+   - Start with the key quantitative insight (specific numbers, time periods, changes)
+   - Follow with the strategic implication or "so what"
+   - Make it a complete, insight-driven sentence that tells a story
+   - Example: "Between 2015 and 2025, Puerto Rico's applicants rose from 590 to 694, while matriculants climbed from 273 to 337, reflecting stable local demand that supports feasibility for a new medical program"
 
-2. Supporting Data Structure:
-   - List 2-3 key data points that directly support the action title
-   - Each data point should be specific and quantitative
-   - Data points should follow a logical flow
-   - Include only data that appears in the slide body
+2. Reasoning Requirements:
+   - Show clear cause-and-effect relationships
+   - Connect data points to form a compelling narrative
+   - Demonstrate strategic thinking (e.g., "this strong local preference suggests an opportunity")
+   - Example: "Using a 492 MCAT and 3 GPA cutoff, about 59% of local applicants—around 452 individuals—meet both criteria, clarifying the potential talent pool and helping plan capacity"
 
-3. Business Implication:
-   - Clearly state the "so what" for the business
-   - Focus on actionable insights
+3. Supporting Data Structure:
+   - Each data point must directly support your reasoning
+   - Present data in a logical flow that builds your argument
+   - Include specific numbers that appear in your title
+   - Example: 
+     * "576 total applicants in 2024-2025"
+     * "56% enrolled in-state, 44% went elsewhere"
+     * "This indicates strong local preference"
+
+4. Business Implication:
+   - Must be actionable and forward-looking
    - Connect to strategic decision-making
+   - Support resource allocation or planning decisions
+   - Example: "This consistent student base informs feasibility and enrollment forecasts for a new medical program"
 
 Data Summary:
 ${JSON.stringify(data, null, 2)}
@@ -585,18 +594,22 @@ ${JSON.stringify(framework, null, 2)}
 
 Format the response as JSON with these exact fields:
 {
-    "title": "Your action title here",
-    "supportingData": ["data point 1", "data point 2", "data point 3"],
-    "businessImplication": "Clear business implication"
+    "title": "Your data-driven, reasoning-based action title here",
+    "supportingData": [
+        "Specific quantitative point 1 that builds your argument",
+        "Specific quantitative point 2 that builds your argument",
+        "Specific quantitative point 3 that builds your argument"
+    ],
+    "businessImplication": "Clear, actionable strategic implication"
 }`;
 
         const response = await this.executeWithRetry(() =>
             this.openai.chat.completions.create({
-                model: this.selectAppropriateModel('title'),
+                model: 'gpt-4',  // Using GPT-4 for better reasoning
                 messages: [
                     {
                         role: 'system',
-                        content: 'You are an expert management consultant skilled in creating impactful slide titles that follow consulting best practices.'
+                        content: 'You are a McKinsey-trained management consultant skilled in data-driven storytelling and strategic reasoning. Your action titles must demonstrate clear analytical thinking and strategic implications.'
                     },
                     {
                         role: 'user',
@@ -619,8 +632,8 @@ Format the response as JSON with these exact fields:
             businessImplication: 'Further analysis needed'
         });
 
-        // Validate the action title meets our requirements
-        await this.validateActionTitle(result);
+        // Enhanced validation for reasoning and insights
+        await this.validateActionTitleReasoning(result);
 
         this.endTiming(timing);
         return result;
@@ -641,28 +654,49 @@ Format the response as JSON with these exact fields:
     }
   }
 
-  private async validateActionTitle(actionTitle: ActionTitle): Promise<void> {
-    const validationPrompt = `Validate this action title structure against consulting best practices:
+  private async validateActionTitleReasoning(actionTitle: ActionTitle): Promise<void> {
+    const validationPrompt = `Validate this action title's reasoning and strategic insight:
 
 Action Title: "${actionTitle.title}"
 Supporting Data: ${JSON.stringify(actionTitle.supportingData)}
 Business Implication: "${actionTitle.businessImplication}"
 
-Check for:
-1. Title contains specific numbers/metrics
-2. Title is an insight, not just a topic
-3. Supporting data directly proves the title
-4. Business implication is actionable
+Evaluate against these criteria:
+1. Quantitative Reasoning
+   - Contains specific numbers and metrics
+   - Shows clear data relationships
+   - Demonstrates trend analysis
 
-Return JSON: { "isValid": boolean, "feedback": string[] }`;
+2. Strategic Thinking
+   - Clear cause-and-effect logic
+   - Business implications are actionable
+   - Supports decision-making
+
+3. Narrative Quality
+   - Tells a compelling story
+   - Flows logically
+   - Connects data to strategy
+
+4. Supporting Evidence
+   - Data points directly prove the title
+   - Logical progression of evidence
+   - No unsupported claims
+
+Return JSON: { 
+    "isValid": boolean, 
+    "feedback": string[],
+    "reasoningScore": number,
+    "strategicScore": number,
+    "narrativeScore": number
+}`;
 
     const response = await this.executeWithRetry(() =>
         this.openai.chat.completions.create({
-            model: this.selectAppropriateModel('title'),
+            model: 'gpt-4',
             messages: [
                 {
                     role: 'system',
-                    content: 'You are a senior management consultant who reviews slide titles for quality and impact.'
+                    content: 'You are a senior McKinsey partner who reviews consulting deliverables for analytical rigor and strategic insight.'
                 },
                 {
                     role: 'user',
@@ -670,7 +704,7 @@ Return JSON: { "isValid": boolean, "feedback": string[] }`;
                 }
             ],
             temperature: 0.3,
-            max_tokens: 300
+            max_tokens: 500
         })
     );
 
@@ -679,11 +713,25 @@ Return JSON: { "isValid": boolean, "feedback": string[] }`;
         return;
     }
 
-    const validation = this.safeJsonParse(content, { isValid: true, feedback: [] });
+    const validation = this.safeJsonParse(content, { 
+        isValid: true, 
+        feedback: [],
+        reasoningScore: 0,
+        strategicScore: 0,
+        narrativeScore: 0
+    });
     
-    if (!validation.isValid) {
-        console.warn('Action Title Validation Warnings:', {
+    if (!validation.isValid || 
+        validation.reasoningScore < 7 || 
+        validation.strategicScore < 7 || 
+        validation.narrativeScore < 7) {
+        console.warn('Action Title Quality Warning:', {
             feedback: validation.feedback,
+            scores: {
+                reasoning: validation.reasoningScore,
+                strategic: validation.strategicScore,
+                narrative: validation.narrativeScore
+            },
             title: actionTitle.title,
             timestamp: new Date().toISOString()
         });
