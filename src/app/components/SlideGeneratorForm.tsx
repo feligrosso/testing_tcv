@@ -140,7 +140,17 @@ export default function SlideGeneratorForm() {
         url: '/api/generate-slides',
         method: 'POST',
         bodyLength: JSON.stringify(formData).length,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        userAgent: window.navigator.userAgent,
+        viewport: {
+          width: window.innerWidth,
+          height: window.innerHeight
+        },
+        connection: (navigator as any).connection ? {
+          effectiveType: (navigator as any).connection.effectiveType,
+          rtt: (navigator as any).connection.rtt,
+          downlink: (navigator as any).connection.downlink
+        } : 'not available'
       });
 
       const response = await fetch('/api/generate-slides', {
@@ -158,7 +168,10 @@ export default function SlideGeneratorForm() {
         status: response.status,
         statusText: response.statusText,
         headers: Object.fromEntries(response.headers.entries()),
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        responseType: response.type,
+        redirected: response.redirected,
+        url: response.url
       });
 
       let data;
@@ -167,7 +180,15 @@ export default function SlideGeneratorForm() {
         console.log('Raw Response Text:', {
           length: textData.length,
           preview: textData.slice(0, 100) + '...',
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          isJSON: (() => {
+            try {
+              JSON.parse(textData);
+              return true;
+            } catch (e) {
+              return false;
+            }
+          })()
         });
 
         try {
@@ -176,20 +197,28 @@ export default function SlideGeneratorForm() {
             hasError: !!data.error,
             errorType: data.errorType,
             hasTitle: !!data.title,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            responseKeys: Object.keys(data)
           });
         } catch (parseError) {
           console.error('JSON Parse Error:', {
             error: parseError instanceof Error ? parseError.message : 'Unknown error',
             rawData: textData,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            parseErrorType: parseError instanceof Error ? parseError.name : 'Unknown'
           });
           throw new Error('Invalid response format from server');
         }
       } catch (textError) {
         console.error('Text Reading Error:', {
           error: textError instanceof Error ? textError.message : 'Unknown error',
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          responseState: {
+            bodyUsed: response.bodyUsed,
+            ok: response.ok,
+            status: response.status,
+            type: response.type
+          }
         });
         throw new Error('Failed to read response from server');
       }
@@ -238,8 +267,26 @@ export default function SlideGeneratorForm() {
       setSlideContent(data);
     } catch (error) {
       console.error('Error generating slide:', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        timestamp: new Date().toISOString()
+        error: error instanceof Error ? {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        } : 'Unknown error',
+        timestamp: new Date().toISOString(),
+        formData: {
+          ...formData,
+          rawData: `${formData.rawData.slice(0, 100)}...` // Truncate for logging
+        },
+        browserInfo: {
+          userAgent: window.navigator.userAgent,
+          language: window.navigator.language,
+          onLine: window.navigator.onLine,
+          memory: (performance as any).memory ? {
+            jsHeapSizeLimit: (performance as any).memory.jsHeapSizeLimit,
+            totalJSHeapSize: (performance as any).memory.totalJSHeapSize,
+            usedJSHeapSize: (performance as any).memory.usedJSHeapSize
+          } : 'not available'
+        }
       });
       
       let errorMessage = 'An error occurred while generating your slide';
