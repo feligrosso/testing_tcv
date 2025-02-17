@@ -126,7 +126,10 @@ export async function POST(req: Request) {
 
     // Initialize service and generate slide
     try {
-      const slideService = createSlideGenerationService(apiKey);
+      const slideService = createSlideGenerationService(
+        process.env.OPENAI_API_KEY!,
+        process.env.OPENAI_API_KEY! // Temporarily use OpenAI key until DeepSeek is set up
+      );
       const result = await slideService.generateSlide({
         title: reqData.title,
         rawData: reqData.rawData,
