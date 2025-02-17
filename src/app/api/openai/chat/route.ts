@@ -5,9 +5,12 @@ import { NextResponse } from "next/server";
 // Switch to standard serverless runtime
 export const runtime = 'nodejs';
 
-// Initialize OpenAI with a dummy key for build time
+// Initialize OpenAI with project-scoped key support
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || 'dummy-key-for-build'
+  apiKey: process.env.OPENAI_API_KEY || 'dummy-key-for-build',
+  defaultHeaders: {
+    'OpenAI-Beta': 'all-v1'
+  }
 });
 
 export async function POST(req: Request) {

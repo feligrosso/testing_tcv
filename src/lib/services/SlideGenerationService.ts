@@ -75,6 +75,7 @@ export class SlideGenerationService {
   constructor(apiKey: string) {
     console.log('Initializing with API key:', {
         keyLength: apiKey?.length,
+        isProjectKey: apiKey?.startsWith('sk-proj-'),
         timestamp: new Date().toISOString()
     });
 
@@ -84,16 +85,20 @@ export class SlideGenerationService {
     }
 
     try {
-        // Initialize OpenAI client with the key as-is
+        // Initialize OpenAI client with project-scoped key support
         this.openai = new OpenAI({
             apiKey: apiKey,
             maxRetries: SlideGenerationService.MAX_RETRIES,
-            timeout: SlideGenerationService.TIMEOUT
+            timeout: SlideGenerationService.TIMEOUT,
+            defaultHeaders: {
+                'OpenAI-Beta': 'all-v1'
+            }
         });
 
         console.log('OpenAI Client Initialized:', {
             maxRetries: SlideGenerationService.MAX_RETRIES,
             timeout: SlideGenerationService.TIMEOUT,
+            isProjectKey: apiKey.startsWith('sk-proj-'),
             timestamp: new Date().toISOString()
         });
     } catch (error) {
