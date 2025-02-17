@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import Replicate from 'replicate';
 import axios from 'axios';
 import { queueService } from './QueueService';
 import { ChatCompletionMessage, ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat/completions';
@@ -63,25 +64,24 @@ interface OperationTiming {
   subOperations?: OperationTiming[];
 }
 
-// Model configurations and API endpoints
-const API_CONFIG = {
+// Model configurations
+const MODELS = {
   DEEPSEEK: {
-    BASE_URL: 'https://api.deepseek.com/v1',
-    MODELS: {
-      REASONING: 'deepseek-coder-33b-instruct',
-      FAST: 'deepseek-coder-6.7b-instruct'
+    VERSION: 'deepseek-ai/deepseek-r1:0.1.0',
+    CONFIG: {
+      max_tokens: 1000,
+      temperature: 0.4,
+      top_p: 0.95
     }
   },
   OPENAI: {
-    MODELS: {
-      FALLBACK: 'gpt-4'
-    }
+    FALLBACK: 'gpt-4'
   }
 } as const;
 
 export class SlideGenerationService {
   private openai: OpenAI;
-  private deepseekApiKey: string;
+  private replicate: Replicate;
   private static CHUNK_SIZE = 4000;
   private static MAX_RETRIES = 3;
   private static TIMEOUT = 30000;
@@ -90,92 +90,49 @@ export class SlideGenerationService {
   private operationTimings: OperationTiming[] = [];
   private static readonly RETRY_DELAY = 1000;
 
-  constructor(openAiKey: string, deepseekApiKey: string) {
-    console.log('Initializing with API key:', {
-        keyLength: openAiKey?.length,
-        isProjectKey: openAiKey?.startsWith('sk-proj-'),
-        timestamp: new Date().toISOString()
-    });
-
+  constructor(openAiKey: string, replicateKey: string) {
     if (!openAiKey) {
-        console.error('API Key Missing in Service Constructor');
-        throw new Error('OpenAI API key is required to initialize the service');
+      throw new Error('OpenAI API key is required');
+    }
+    if (!replicateKey) {
+      throw new Error('Replicate API key is required');
     }
 
-    try {
-        // Initialize OpenAI client with project-scoped key support
-        this.openai = new OpenAI({
-            apiKey: openAiKey,
-            maxRetries: SlideGenerationService.MAX_RETRIES,
-            timeout: SlideGenerationService.TIMEOUT,
-            defaultHeaders: {
-                'OpenAI-Beta': 'all-v1'
-            }
-        });
-
-        console.log('OpenAI Client Initialized:', {
-            maxRetries: SlideGenerationService.MAX_RETRIES,
-            timeout: SlideGenerationService.TIMEOUT,
-            isProjectKey: openAiKey.startsWith('sk-proj-'),
-            timestamp: new Date().toISOString()
-        });
-    } catch (error) {
-        console.error('OpenAI Client Initialization Error:', {
-            error: error instanceof Error ? {
-                message: error.message,
-                name: error.name
-            } : 'Unknown error',
-            timestamp: new Date().toISOString()
-        });
-        throw error;
-    }
+    this.openai = new OpenAI({ apiKey: openAiKey });
+    this.replicate = new Replicate({ auth: replicateKey });
     
     this.modelCapabilities = new Map([
-        ['gpt-3.5-turbo-basic', true],
-        ['gpt-4-basic', true],
-        ['gpt-3.5-turbo-16k-basic', true]
+      ['gpt-3.5-turbo-basic', true],
+      ['gpt-4-basic', true],
+      ['gpt-3.5-turbo-16k-basic', true]
     ]);
 
-    this.deepseekApiKey = deepseekApiKey;
+    console.log('Service Initialized:', {
+      openAiKeyLength: openAiKey.length,
+      replicateKeyLength: replicateKey.length,
+      timestamp: new Date().toISOString()
+    });
   }
 
   private async validateConnection(): Promise<void> {
     try {
-        console.log('Attempting API Connection Validation:', {
-            timestamp: new Date().toISOString(),
-            apiKeyFormat: {
-                prefix: this.openai.apiKey?.substring(0, 7),
-                length: this.openai.apiKey?.length
-            }
-        });
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [{ role: 'user', content: 'test' }],
+        max_tokens: 5
+      });
 
-        // Simple test call to validate the API key
-        const response = await this.openai.chat.completions.create({
-            model: 'gpt-3.5-turbo',
-            messages: [{ role: 'user', content: 'test' }],
-            max_tokens: 5
-        });
-
-        console.log('OpenAI Connection Validated Successfully:', {
-            model: response.model,
-            timestamp: new Date().toISOString()
-        });
+      console.log('API Connection Validated:', {
+        openai: response.model,
+        replicate: !!this.replicate,
+        timestamp: new Date().toISOString()
+      });
     } catch (error: any) {
-        console.error('OpenAI Connection Validation Failed:', {
-            error: {
-                message: error.message,
-                type: error.type,
-                status: error.status,
-                code: error.code
-            },
-            apiKeyDetails: {
-                prefix: this.openai.apiKey?.substring(0, 7),
-                length: this.openai.apiKey?.length,
-                isStandardFormat: this.openai.apiKey?.startsWith('sk-') && !this.openai.apiKey?.startsWith('sk-proj-')
-            },
-            timestamp: new Date().toISOString()
-        });
-        throw error;
+      console.error('API Connection Validation Failed:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+      throw error;
     }
   }
 
@@ -185,7 +142,7 @@ export class SlideGenerationService {
       const result = await operation();
       const duration = Date.now() - startTime;
 
-      console.log('OpenAI Operation Complete:', {
+      console.log('API Operation Complete:', {
         durationMs: duration,
         retryCount,
         timestamp: new Date().toISOString()
@@ -193,10 +150,10 @@ export class SlideGenerationService {
 
       return result;
     } catch (error: any) {
-      console.error('OpenAI Operation Failed:', {
-            error: error.message,
+      console.error('API Operation Failed:', {
+        error: error.message,
         code: error.code,
-            type: error.type,
+        type: error.type,
         status: error.status,
         retryCount,
         timestamp: new Date().toISOString()
@@ -573,40 +530,6 @@ export class SlideGenerationService {
     }
   }
 
-  private async callDeepSeekApi(messages: Array<{ role: string; content: string }>, options: {
-    temperature?: number;
-    max_tokens?: number;
-    model: string;
-  }) {
-    try {
-      const response = await axios.post(
-        `${API_CONFIG.DEEPSEEK.BASE_URL}/chat/completions`,
-        {
-          model: options.model,
-          messages,
-          temperature: options.temperature ?? 0.4,
-          max_tokens: options.max_tokens ?? 1000,
-          stream: false
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${this.deepseekApiKey}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      return response.data;
-    } catch (error) {
-      console.error('DeepSeek API Error:', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        model: options.model,
-        timestamp: new Date().toISOString()
-      });
-      throw error;
-    }
-  }
-
   private async generateActionTitle(data: DataSummary, framework: ConsultingFramework): Promise<ActionTitle> {
     const timing = this.startTiming('generateActionTitle');
     
@@ -671,30 +594,30 @@ Think through your reasoning step by step, then output a JSON response with thes
     "businessImplication": "Clear, actionable strategic implication"
 }`;
 
-        // Try DeepSeek first
+        // Try DeepSeek through Replicate first
         try {
-            const messages = [
+            const output = await this.replicate.run(
+                MODELS.DEEPSEEK.VERSION,
                 {
-                    role: 'system',
-                    content: 'You are a McKinsey-trained management consultant with exceptional analytical and strategic reasoning capabilities. Your expertise is in transforming data into actionable strategic insights.'
-                },
-                {
-                    role: 'user',
-                    content: prompt
+                    input: {
+                        prompt,
+                        max_tokens: MODELS.DEEPSEEK.CONFIG.max_tokens,
+                        temperature: MODELS.DEEPSEEK.CONFIG.temperature,
+                        top_p: MODELS.DEEPSEEK.CONFIG.top_p
+                    }
                 }
-            ];
+            );
 
-            const response = await this.callDeepSeekApi(messages, {
-                model: API_CONFIG.DEEPSEEK.MODELS.REASONING,
-                temperature: 0.4,
-                max_tokens: 1000
-            });
-
-            if (!response.choices?.[0]?.message?.content) {
-                throw new Error('Invalid DeepSeek response format');
+            // Handle Replicate's output format
+            const content = typeof output === 'string' ? output : 
+                          Array.isArray(output) ? output.join('') : 
+                          JSON.stringify(output);
+            
+            if (!content) {
+                throw new Error('Invalid Replicate response format');
             }
 
-            const result = this.safeJsonParse(response.choices[0].message.content, {
+            const result = this.safeJsonParse(content, {
                 reasoning: [],
                 title: 'Data Analysis Results',
                 supportingData: [],
@@ -703,7 +626,7 @@ Think through your reasoning step by step, then output a JSON response with thes
 
             // Log DeepSeek's reasoning steps
             console.log('DeepSeek Analysis:', {
-                model: API_CONFIG.DEEPSEEK.MODELS.REASONING,
+                model: MODELS.DEEPSEEK.VERSION,
                 reasoning: result.reasoning,
                 timestamp: new Date().toISOString()
             });
@@ -726,7 +649,7 @@ Think through your reasoning step by step, then output a JSON response with thes
             // Fallback to GPT-4
             const fallbackResponse = await this.executeWithRetry(() =>
                 this.openai.chat.completions.create({
-                    model: API_CONFIG.OPENAI.MODELS.FALLBACK,
+                    model: MODELS.OPENAI.FALLBACK,
                     messages: [
                         {
                             role: 'system',
@@ -1171,6 +1094,6 @@ Return JSON: {
   }
 }
 
-export const createSlideGenerationService = (openAiKey: string, deepseekApiKey: string) => {
-  return new SlideGenerationService(openAiKey, deepseekApiKey);
+export const createSlideGenerationService = (openAiKey: string, replicateKey: string) => {
+  return new SlideGenerationService(openAiKey, replicateKey);
 }; 
