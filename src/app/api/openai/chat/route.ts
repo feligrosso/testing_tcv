@@ -2,6 +2,9 @@ import OpenAI from "openai";
 import { StreamingTextResponse } from "ai";
 import { NextResponse } from "next/server";
 
+// Switch to standard serverless runtime
+export const runtime = 'nodejs';
+
 // Initialize OpenAI with a dummy key for build time
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || 'dummy-key-for-build'

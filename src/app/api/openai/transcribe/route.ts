@@ -3,6 +3,9 @@ import fs from "fs";
 import OpenAI from "openai";
 import path from "path";
 
+// Switch to standard serverless runtime
+export const runtime = 'nodejs';
+
 // Initialize OpenAI with a dummy key for build time
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || 'dummy-key-for-build'
