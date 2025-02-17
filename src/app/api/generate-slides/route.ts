@@ -5,6 +5,16 @@ import { createSlideGenerationService } from '@/lib/services/SlideGenerationServ
 export const runtime = 'nodejs';
 export const maxDuration = 60; // Allow up to 60 seconds for processing
 
+// Log environment state immediately
+console.log('Environment State at Route Start:', {
+  envKeys: Object.keys(process.env),
+  hasOpenAIKey: !!process.env.OPENAI_API_KEY,
+  keyPrefix: process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.substring(0, 8) : 'none',
+  nodeEnv: process.env.NODE_ENV,
+  vercelEnv: process.env.VERCEL_ENV,
+  timestamp: new Date().toISOString()
+});
+
 // Add response headers for consistent handling
 const responseHeaders = {
   'Content-Type': 'application/json',
