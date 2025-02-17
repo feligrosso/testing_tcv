@@ -146,6 +146,50 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   return Promise.race([promise, timeout]);
 }
 
+// Add response logging middleware
+const logResponse = (response: Response) => {
+  console.log('Response Details:', {
+    status: response.status,
+    statusText: response.statusText,
+    headers: Object.fromEntries(response.headers.entries()),
+    type: response.type,
+    timestamp: new Date().toISOString()
+  });
+  return response;
+};
+
+// Add response headers for consistent handling
+const responseHeaders = {
+  'Content-Type': 'application/json',
+  'Cache-Control': 'no-store, must-revalidate'
+};
+
+// Wrap all responses in NextResponse.json with proper headers
+const createErrorResponse = (message: string, status: number, type: 'error' | 'warning' = 'error') => {
+  const errorResponse = NextResponse.json({
+    error: true,
+    message,
+    errorType: type,
+    title: 'Error',
+    subtitle: message,
+    keyPoints: [message],
+    source: 'System'
+  }, { 
+    status,
+    headers: responseHeaders
+  });
+
+  console.log('Error Response:', {
+    message,
+    status,
+    type,
+    headers: Object.fromEntries(errorResponse.headers.entries()),
+    timestamp: new Date().toISOString()
+  });
+
+  return logResponse(errorResponse);
+};
+
 export async function POST(req: Request) {
   console.log('Request Started:', {
     url: req.url,
@@ -158,6 +202,25 @@ export async function POST(req: Request) {
   startOperation('total_request');
   
   try {
+    // Parse request with error handling
+    let reqData;
+    try {
+      const rawBody = await req.text();
+      console.log('Raw Request Body:', {
+        length: rawBody.length,
+        preview: rawBody.slice(0, 100) + '...',
+        timestamp: new Date().toISOString()
+      });
+      
+      reqData = JSON.parse(rawBody);
+    } catch (error) {
+      console.error('Request Parsing Error:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+      return createErrorResponse('Invalid JSON in request body', 400, 'error');
+    }
+
     // Validate environment variables first
     let apiKey: string;
     startOperation('env_validation');
@@ -171,52 +234,13 @@ export async function POST(req: Request) {
         error: error.message,
         timestamp: new Date().toISOString()
       });
-      return new Response(JSON.stringify({
-        error: true,
-        message: 'Configuration Error: OpenAI API key is missing or invalid',
-        errorType: 'error',
-        title: 'Service Unavailable',
-        subtitle: 'Configuration Error',
-        keyPoints: [
-          'The service is not properly configured',
-          'OpenAI API key is missing or invalid',
-          'Please check the environment variables in Vercel'
-        ]
-      }), { 
-        status: 503,
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store, must-revalidate'
-        }
-      });
+      return createErrorResponse('Configuration Error: OpenAI API key is missing or invalid', 503, 'error');
     }
 
     // Initialize slide generation service with validated API key
     startOperation('service_init');
     const slideService = createSlideGenerationService(apiKey);
     endOperation('service_init');
-
-    // Parse request data with timeout
-    startOperation('request_parsing');
-    let reqData;
-    try {
-      reqData = await withTimeout(req.json(), 5000);
-      endOperation('request_parsing');
-    } catch (error) {
-      endOperation('request_parsing');
-      return NextResponse.json({
-        error: true,
-        message: error instanceof Error && error.message === 'Operation timed out' 
-          ? 'Request parsing timed out' 
-          : 'Invalid request data format',
-        errorType: 'error',
-        title: 'Request Error',
-        subtitle: 'Invalid or Slow Request',
-        visualType: 'Bar Chart',
-        keyPoints: ['Please ensure your request data is properly formatted and not too large'],
-        source: 'System Message'
-      }, { status: 400 });
-    }
 
     const { 
       title, 
@@ -230,94 +254,54 @@ export async function POST(req: Request) {
     } = reqData;
     
     if (!rawData) {
-      return NextResponse.json({
-        error: true,
-        message: 'No data provided for analysis',
-        errorType: 'error',
-        title: title || 'Analysis Error',
-        subtitle: 'Missing Data',
-        visualType: 'Bar Chart',
-        keyPoints: ['Please provide data to analyze'],
-        source: source || 'System Message'
-      }, { status: 400 });
+      return createErrorResponse('No data provided for analysis', 400, 'error');
     }
 
     // Validate data size
     const dataSize = new TextEncoder().encode(rawData).length;
     const maxSize = 100000; // 100KB limit
     if (dataSize > maxSize) {
-      return NextResponse.json({
-        error: true,
-        message: 'Data size exceeds limit. Please reduce the amount of data.',
-        errorType: 'warning',
-        title: title || 'Data Size Error',
-        subtitle: 'Excessive Data',
-        visualType: 'Bar Chart',
-        keyPoints: [
-          'The provided data exceeds the size limit',
-          'Please reduce the data to less than 100KB',
-          'Consider summarizing or sampling your data'
-        ],
-        source: source || 'System Message'
-      }, { status: 413 });
+      return createErrorResponse('Data size exceeds limit. Please reduce the amount of data.', 413, 'warning');
     }
 
     try {
-      startOperation('slide_generation');
-      const result = await withTimeout(
-        slideService.generateSlide({
-          title,
-          rawData,
-          soWhat,
-          source,
-          audience,
-          style,
-          focusArea,
-          dataContext
-        }),
-        TIMEOUT_DURATION - 5000 // Allow 5s for cleanup
-      );
-      endOperation('slide_generation');
-
-      endOperation('total_request');
-      console.log('Performance Summary:', {
-        metrics: performanceMetrics,
-        timestamp: new Date().toISOString()
+      const result = await slideService.generateSlide({
+        title,
+        rawData,
+        soWhat,
+        source,
+        audience,
+        style,
+        focusArea,
+        dataContext
       });
 
-      return NextResponse.json(result);
-    } catch (error: any) {
-      endOperation('slide_generation');
-      endOperation('total_request');
+      // Before returning success response
+      const successResponse = NextResponse.json(result, { headers: responseHeaders });
+      console.log('Success Response:', {
+        status: successResponse.status,
+        headers: Object.fromEntries(successResponse.headers.entries()),
+        resultPreview: JSON.stringify(result).slice(0, 100) + '...',
+        timestamp: new Date().toISOString()
+      });
       
+      return logResponse(successResponse);
+
+    } catch (error: any) {
       console.error('Slide generation error:', {
         error: error.message,
-        metrics: performanceMetrics,
+        stack: error.stack,
         timestamp: new Date().toISOString()
       });
 
       if (error.message === 'Operation timed out' || error.name === 'AbortError') {
-        return NextResponse.json({
-          error: true,
-          message: 'The request took too long to process',
-          errorType: 'warning',
-          title: 'Processing Timeout',
-          subtitle: 'Request Too Complex',
-          visualType: 'Bar Chart',
-          keyPoints: [
-            'The analysis is taking longer than expected',
-            'Please try with a smaller dataset',
-            'Consider breaking your analysis into smaller parts'
-          ],
-          source: 'System Message'
-        }, { status: 408 });
+        return createErrorResponse('The request took too long to process', 408, 'warning');
       }
 
       let status = error.status || 500;
       let message = error.message || 'An unexpected error occurred';
-      let errorType = 'error';
+      let errorType: 'error' | 'warning' = 'error';
 
-      // Handle specific error types
       if (error.code === 'insufficient_quota') {
         status = 429;
         message = 'API quota exceeded. Please try again later.';
@@ -326,72 +310,17 @@ export async function POST(req: Request) {
         status = 400;
         message = 'Input data is too long. Please provide a shorter dataset.';
         errorType = 'warning';
-      } else if (error.name === 'AbortError' || error.code === 'ETIMEDOUT') {
-        status = 408;
-        message = 'The request took too long. Please try again with simpler data.';
-        errorType = 'warning';
-      } else if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
-        status = 503;
-        message = 'Unable to connect to OpenAI API. Please try again in a few moments.';
-        errorType = 'warning';
-        console.error('Connection error:', {
-          code: error.code,
-          message: error.message,
-          timestamp: new Date().toISOString()
-        });
       }
 
-      return NextResponse.json({
-        error: true,
-        message,
-        errorType,
-        title: 'Analysis Error',
-        subtitle: message,
-        visualType: 'Bar Chart',
-        keyPoints: [
-          'The service is experiencing temporary connectivity issues',
-          'Our system will automatically retry your request',
-          'Please try again in a few moments'
-        ],
-        recommendations: [
-          'Wait a few moments before trying again',
-          'Check if there are any known OpenAI API issues',
-          'Contact support if the issue persists'
-        ],
-        source: 'System Message'
-      }, { 
-        status,
-        headers: {
-          'Cache-Control': 'no-store, must-revalidate'
-        }
-      });
+      return createErrorResponse(message, status, errorType);
     }
   } catch (error: any) {
-    endOperation('total_request');
     console.error('Unexpected error:', {
       error: error.message,
-      metrics: performanceMetrics,
+      stack: error.stack,
       timestamp: new Date().toISOString()
     });
     
-    return NextResponse.json({
-      error: true,
-      message: 'An unexpected error occurred',
-      errorType: 'error',
-      title: 'System Error',
-      subtitle: 'Unexpected Error',
-      visualType: 'Bar Chart',
-      keyPoints: [
-        'The system encountered an unexpected error',
-        'Our team has been notified',
-        'Please try again later'
-      ],
-      recommendations: [
-        'Refresh the page and try again',
-        'Check your internet connection',
-        'Contact support if the issue persists'
-      ],
-      source: 'System Message'
-    }, { status: 500 });
+    return createErrorResponse('An unexpected error occurred', 500, 'error');
   }
 }

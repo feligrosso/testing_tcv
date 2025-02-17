@@ -136,6 +136,13 @@ export default function SlideGeneratorForm() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000);
 
+      console.log('Making API Request:', {
+        url: '/api/generate-slides',
+        method: 'POST',
+        bodyLength: JSON.stringify(formData).length,
+        timestamp: new Date().toISOString()
+      });
+
       const response = await fetch('/api/generate-slides', {
         method: 'POST',
         headers: {
@@ -147,7 +154,45 @@ export default function SlideGeneratorForm() {
 
       clearTimeout(timeoutId);
 
-      const data = await response.json();
+      console.log('API Response Received:', {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries()),
+        timestamp: new Date().toISOString()
+      });
+
+      let data;
+      try {
+        const textData = await response.text();
+        console.log('Raw Response Text:', {
+          length: textData.length,
+          preview: textData.slice(0, 100) + '...',
+          timestamp: new Date().toISOString()
+        });
+
+        try {
+          data = JSON.parse(textData);
+          console.log('Parsed Response:', {
+            hasError: !!data.error,
+            errorType: data.errorType,
+            hasTitle: !!data.title,
+            timestamp: new Date().toISOString()
+          });
+        } catch (parseError) {
+          console.error('JSON Parse Error:', {
+            error: parseError instanceof Error ? parseError.message : 'Unknown error',
+            rawData: textData,
+            timestamp: new Date().toISOString()
+          });
+          throw new Error('Invalid response format from server');
+        }
+      } catch (textError) {
+        console.error('Text Reading Error:', {
+          error: textError instanceof Error ? textError.message : 'Unknown error',
+          timestamp: new Date().toISOString()
+        });
+        throw new Error('Failed to read response from server');
+      }
 
       if (!response.ok || data.error) {
         let errorMessage = data.message || 'Failed to generate slide';
@@ -192,7 +237,11 @@ export default function SlideGeneratorForm() {
       await new Promise(resolve => setTimeout(resolve, 1000));
       setSlideContent(data);
     } catch (error) {
-      console.error('Error generating slide:', error);
+      console.error('Error generating slide:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+      
       let errorMessage = 'An error occurred while generating your slide';
       let errorType: FormError['type'] = 'error';
       

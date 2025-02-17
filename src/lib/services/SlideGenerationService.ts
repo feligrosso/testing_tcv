@@ -84,12 +84,12 @@ export class SlideGenerationService {
     });
 
     try {
-      this.openai = new OpenAI({ 
+    this.openai = new OpenAI({ 
         apiKey: apiKey,
-        maxRetries: 0,
-        timeout: SlideGenerationService.TIMEOUT,
-      });
-
+      maxRetries: 0,
+      timeout: SlideGenerationService.TIMEOUT,
+    });
+    
       // Validate connection immediately
       this.validateConnection().catch(error => {
         console.error('OpenAI Connection Validation Failed:', {
@@ -166,9 +166,9 @@ export class SlideGenerationService {
       return result;
     } catch (error: any) {
       console.error('OpenAI Operation Failed:', {
-        error: error.message,
+            error: error.message,
         code: error.code,
-        type: error.type,
+            type: error.type,
         status: error.status,
         retryCount,
         timestamp: new Date().toISOString()
@@ -601,7 +601,7 @@ export class SlideGenerationService {
     });
 
     try {
-      const response = await this.openai.chat.completions.create({
+    const response = await this.openai.chat.completions.create({
       model: 'gpt-4',
       messages: [
         {
