@@ -73,60 +73,106 @@ export class SlideGenerationService {
   private static readonly RETRY_DELAY = 1000;
 
   constructor(apiKey: string) {
-    console.log('Initializing SlideGenerationService:', {
-      hasApiKey: !!apiKey,
-      apiKeyLength: apiKey?.length,
-      timestamp: new Date().toISOString()
+    console.log('API Key Validation:', {
+        keyFormat: {
+            prefix: apiKey?.substring(0, 7),
+            length: apiKey?.length,
+            isStandardFormat: apiKey?.startsWith('sk-') && !apiKey?.startsWith('sk-proj-'),
+            containsProj: apiKey?.includes('proj'),
+            timestamp: new Date().toISOString()
+        }
     });
 
     if (!apiKey) {
-      console.error('API Key Missing in Service Constructor');
-      throw new Error('OpenAI API key is required to initialize the service');
+        console.error('API Key Missing in Service Constructor');
+        throw new Error('OpenAI API key is required to initialize the service');
     }
 
     try {
-      this.openai = new OpenAI({
-        apiKey: apiKey,
-        maxRetries: SlideGenerationService.MAX_RETRIES,
-        timeout: SlideGenerationService.TIMEOUT
-      });
+        // Validate key format
+        if (!apiKey.startsWith('sk-') || apiKey.startsWith('sk-proj-')) {
+            console.error('Invalid API Key Format:', {
+                error: 'Key appears to be in wrong format',
+                expectedPrefix: 'sk-',
+                actualPrefix: apiKey.substring(0, 7),
+                isProjectKey: apiKey.startsWith('sk-proj-'),
+                timestamp: new Date().toISOString()
+            });
+        }
 
-      console.log('OpenAI Client Initialized:', {
-        maxRetries: SlideGenerationService.MAX_RETRIES,
-        timeout: SlideGenerationService.TIMEOUT,
-        timestamp: new Date().toISOString()
-      });
+        this.openai = new OpenAI({
+            apiKey: apiKey,
+            maxRetries: SlideGenerationService.MAX_RETRIES,
+            timeout: SlideGenerationService.TIMEOUT
+        });
+
+        console.log('OpenAI Client Initialized:', {
+            maxRetries: SlideGenerationService.MAX_RETRIES,
+            timeout: SlideGenerationService.TIMEOUT,
+            timestamp: new Date().toISOString()
+        });
     } catch (error) {
-      console.error('OpenAI Client Initialization Error:', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        timestamp: new Date().toISOString()
-      });
-      throw new Error('Failed to initialize OpenAI client: ' + (error instanceof Error ? error.message : 'Unknown error'));
+        console.error('OpenAI Client Initialization Error:', {
+            error: error instanceof Error ? {
+                message: error.message,
+                name: error.name,
+                stack: error.stack
+            } : 'Unknown error',
+            keyDetails: {
+                length: apiKey?.length,
+                prefix: apiKey?.substring(0, 7),
+                format: apiKey?.startsWith('sk-') ? 'standard' : 'non-standard'
+            },
+            timestamp: new Date().toISOString()
+        });
+        throw new Error('Failed to initialize OpenAI client: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
     
     // Remove model capability testing from constructor
     this.modelCapabilities = new Map([
-      ['gpt-3.5-turbo-basic', true],
-      ['gpt-4-basic', true],
-      ['gpt-3.5-turbo-16k-basic', true]
+        ['gpt-3.5-turbo-basic', true],
+        ['gpt-4-basic', true],
+        ['gpt-3.5-turbo-16k-basic', true]
     ]);
   }
 
   private async validateConnection(): Promise<void> {
     try {
-      // Simple test call to validate the API key
-      await this.openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: [{ role: 'user', content: 'test' }],
-        max_tokens: 5
-      });
-      console.log('OpenAI Connection Validated Successfully');
-    } catch (error) {
-      console.error('OpenAI Connection Validation Failed:', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        timestamp: new Date().toISOString()
-      });
-      throw error;
+        console.log('Attempting API Connection Validation:', {
+            timestamp: new Date().toISOString(),
+            apiKeyFormat: {
+                prefix: this.openai.apiKey?.substring(0, 7),
+                length: this.openai.apiKey?.length
+            }
+        });
+
+        // Simple test call to validate the API key
+        const response = await this.openai.chat.completions.create({
+            model: 'gpt-3.5-turbo',
+            messages: [{ role: 'user', content: 'test' }],
+            max_tokens: 5
+        });
+
+        console.log('OpenAI Connection Validated Successfully:', {
+            model: response.model,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error: any) {
+        console.error('OpenAI Connection Validation Failed:', {
+            error: {
+                message: error.message,
+                type: error.type,
+                status: error.status,
+                code: error.code
+            },
+            apiKeyDetails: {
+                prefix: this.openai.apiKey?.substring(0, 7),
+                length: this.openai.apiKey?.length,
+                isStandardFormat: this.openai.apiKey?.startsWith('sk-') && !this.openai.apiKey?.startsWith('sk-proj-')
+            },
+            timestamp: new Date().toISOString()
+        });
+        throw error;
     }
   }
 
