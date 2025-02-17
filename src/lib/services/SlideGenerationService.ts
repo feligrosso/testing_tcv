@@ -62,6 +62,13 @@ interface OperationTiming {
   subOperations?: OperationTiming[];
 }
 
+// Add DeepSeek model configurations
+const MODELS = {
+  REASONING: 'deepseek-coder-33b-instruct',  // Best for complex reasoning
+  FAST: 'deepseek-coder-6.7b-instruct',      // Faster for simpler tasks
+  FALLBACK: 'gpt-4'                          // Fallback if DeepSeek unavailable
+} as const;
+
 export class SlideGenerationService {
   private openai: OpenAI;
   private static CHUNK_SIZE = 4000;
@@ -557,34 +564,43 @@ export class SlideGenerationService {
     const timing = this.startTiming('generateActionTitle');
     
     try {
-        const prompt = `As a McKinsey-trained management consultant, analyze this data and create a compelling action title that demonstrates clear strategic reasoning. Follow these specific guidelines:
+        const prompt = `You are a McKinsey-trained management consultant. Analyze this data and create a compelling action title. Your response must demonstrate clear strategic reasoning and follow consulting best practices.
 
-1. Title Structure (Critical):
-   - Start with the key quantitative insight (specific numbers, time periods, changes)
-   - Follow with the strategic implication or "so what"
-   - Make it a complete, insight-driven sentence that tells a story
-   - Example: "Between 2015 and 2025, Puerto Rico's applicants rose from 590 to 694, while matriculants climbed from 273 to 337, reflecting stable local demand that supports feasibility for a new medical program"
+Let's approach this step by step:
 
-2. Reasoning Requirements:
-   - Show clear cause-and-effect relationships
-   - Connect data points to form a compelling narrative
-   - Demonstrate strategic thinking (e.g., "this strong local preference suggests an opportunity")
-   - Example: "Using a 492 MCAT and 3 GPA cutoff, about 59% of local applicants—around 452 individuals—meet both criteria, clarifying the potential talent pool and helping plan capacity"
+1. First, identify the key quantitative insights:
+   - Look for specific numbers, time periods, and changes
+   - Find clear trends and patterns
+   - Identify the most impactful metrics
 
-3. Supporting Data Structure:
-   - Each data point must directly support your reasoning
-   - Present data in a logical flow that builds your argument
-   - Include specific numbers that appear in your title
-   - Example: 
-     * "576 total applicants in 2024-2025"
-     * "56% enrolled in-state, 44% went elsewhere"
-     * "This indicates strong local preference"
+2. Then, determine the strategic implications:
+   - What do these numbers tell us about the business?
+   - What opportunities or risks do they reveal?
+   - What actions do they suggest?
 
-4. Business Implication:
-   - Must be actionable and forward-looking
-   - Connect to strategic decision-making
-   - Support resource allocation or planning decisions
-   - Example: "This consistent student base informs feasibility and enrollment forecasts for a new medical program"
+3. Finally, craft a title that:
+   - Starts with the key quantitative insight
+   - Follows with the strategic implication
+   - Forms a complete, insight-driven sentence
+   - Tells a compelling story
+
+Here are examples of excellent action titles:
+1. "Between 2015 and 2025, Puerto Rico's applicants rose from 590 to 694, while matriculants climbed from 273 to 337, reflecting stable local demand that supports feasibility for a new medical program"
+   - Note how it starts with specific numbers
+   - Shows clear trends over time
+   - Connects data to strategic implication
+
+2. "Using a 492 MCAT and 3 GPA cutoff, about 59% of local applicants—around 452 individuals—meet both criteria, clarifying the potential talent pool and helping plan capacity"
+   - Begins with specific criteria
+   - Quantifies the opportunity
+   - Links to resource planning
+
+3. "In 2024–2025, Puerto Rico's medical schools saw 576 applicants, with 56% enrolling in-state and 44% going elsewhere, suggesting strong opportunity for a new UAGM med school"
+   - Presents current state with numbers
+   - Shows market dynamics
+   - Concludes with strategic opportunity
+
+Now, analyze this data and create a similar action title:
 
 Data Summary:
 ${JSON.stringify(data, null, 2)}
@@ -592,8 +608,13 @@ ${JSON.stringify(data, null, 2)}
 Consulting Framework:
 ${JSON.stringify(framework, null, 2)}
 
-Format the response as JSON with these exact fields:
+Think through your reasoning step by step, then output a JSON response with these exact fields:
 {
+    "reasoning": [
+        "Step 1: Key quantitative findings...",
+        "Step 2: Pattern analysis...",
+        "Step 3: Strategic implications..."
+    ],
     "title": "Your data-driven, reasoning-based action title here",
     "supportingData": [
         "Specific quantitative point 1 that builds your argument",
@@ -603,40 +624,92 @@ Format the response as JSON with these exact fields:
     "businessImplication": "Clear, actionable strategic implication"
 }`;
 
-        const response = await this.executeWithRetry(() =>
-            this.openai.chat.completions.create({
-                model: 'gpt-4',  // Using GPT-4 for better reasoning
-                messages: [
-                    {
-                        role: 'system',
-                        content: 'You are a McKinsey-trained management consultant skilled in data-driven storytelling and strategic reasoning. Your action titles must demonstrate clear analytical thinking and strategic implications.'
-                    },
-                    {
-                        role: 'user',
-                        content: prompt
-                    }
-                ],
-                temperature: 0.7,
-                max_tokens: 500
-            })
-        );
+        // Try DeepSeek first, fall back to GPT-4 if needed
+        try {
+            const response = await this.executeWithRetry(() =>
+                this.openai.chat.completions.create({
+                    model: MODELS.REASONING,
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'You are a McKinsey-trained management consultant with exceptional analytical and strategic reasoning capabilities. Your expertise is in transforming data into actionable strategic insights.'
+                        },
+                        {
+                            role: 'user',
+                            content: prompt
+                        }
+                    ],
+                    temperature: 0.4, // Lower temperature for more focused reasoning
+                    max_tokens: 1000,
+                    top_p: 0.95,
+                    frequency_penalty: 0.1,
+                    presence_penalty: 0.1
+                })
+            );
 
-        const content = response.choices[0]?.message?.content;
-        if (!content) {
-            throw new Error('Failed to generate action title');
+            const content = response.choices[0]?.message?.content;
+            if (!content) {
+                throw new Error('Failed to generate action title with DeepSeek');
+            }
+
+            const result = this.safeJsonParse(content, {
+                reasoning: [],
+                title: 'Data Analysis Results',
+                supportingData: [],
+                businessImplication: 'Further analysis needed'
+            });
+
+            // Log the reasoning steps for debugging
+            console.log('DeepSeek Reasoning Steps:', {
+                steps: result.reasoning,
+                timestamp: new Date().toISOString()
+            });
+
+            // Enhanced validation with reasoning check
+            await this.validateActionTitleReasoning(result);
+
+            this.endTiming(timing);
+            return {
+                title: result.title,
+                supportingData: result.supportingData,
+                businessImplication: result.businessImplication
+            };
+        } catch (deepseekError) {
+            console.warn('DeepSeek generation failed, falling back to GPT-4:', {
+                error: deepseekError instanceof Error ? deepseekError.message : 'Unknown error',
+                timestamp: new Date().toISOString()
+            });
+
+            // Fallback to GPT-4
+            const fallbackResponse = await this.executeWithRetry(() =>
+                this.openai.chat.completions.create({
+                    model: MODELS.FALLBACK,
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'You are a McKinsey-trained management consultant skilled in data-driven storytelling and strategic reasoning.'
+                        },
+                        {
+                            role: 'user',
+                            content: prompt
+                        }
+                    ],
+                    temperature: 0.7,
+                    max_tokens: 500
+                })
+            );
+
+            const fallbackContent = fallbackResponse.choices[0]?.message?.content;
+            if (!fallbackContent) {
+                throw new Error('Failed to generate action title with fallback model');
+            }
+
+            return this.safeJsonParse(fallbackContent, {
+                title: 'Data Analysis Results',
+                supportingData: [],
+                businessImplication: 'Further analysis needed'
+            });
         }
-
-        const result = this.safeJsonParse(content, {
-            title: 'Data Analysis Results',
-            supportingData: [],
-            businessImplication: 'Further analysis needed'
-        });
-
-        // Enhanced validation for reasoning and insights
-        await this.validateActionTitleReasoning(result);
-
-        this.endTiming(timing);
-        return result;
     } catch (error) {
         console.error('Action Title Generation Error:', {
             error: error instanceof Error ? error.message : 'Unknown error',
