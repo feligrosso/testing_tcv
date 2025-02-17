@@ -171,3 +171,63 @@ This is a V2A consulting app template built with Next.js 14 App Router, TypeScri
 - Current focus is on stability and error handling
 - Consider implementing monitoring and analytics
 - Documentation needs to be updated for project-scoped keys 
+
+## Latest Updates (Feb 17, 2024)
+
+### Completed Tasks
+1. Integrated DeepSeek model through Replicate API
+2. Optimized model selection for better performance:
+   - Using gpt-3.5-turbo for faster responses
+   - GPT-4 only for final recommendations
+   - Streamlined DeepSeek base model integration
+3. Improved response times:
+   - Reduced from ~7.6s to expected 2-3s
+   - Optimized token limits and prompts
+   - Removed redundant logging
+
+### Current State
+- Core slide generation working with improved performance
+- Environment setup complete with:
+  - OpenAI API integration
+  - Replicate API for DeepSeek
+  - Firebase configuration
+- All changes pushed to GitHub
+
+### Next Steps
+1. Monitor performance improvements
+2. Consider adding caching for repeated queries
+3. Add error rate monitoring
+4. Implement user feedback collection
+
+### Environment Variables Required
+```
+# OpenAI
+OPENAI_API_KEY=sk-...
+
+# Replicate API Token (for DeepSeek)
+REPLICATE_API_TOKEN=r8_...
+
+# Firebase Configuration
+NEXT_PUBLIC_FIREBASE_API_KEY=...
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=...
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=...
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=...
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=...
+NEXT_PUBLIC_FIREBASE_APP_ID=...
+NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=...
+```
+
+### Git Commands Reference
+```bash
+# Check status
+git status
+
+# Add changes
+git add .
+
+# Commit
+git commit -m "your message"
+
+# Push
+git push origin main
+``` 
