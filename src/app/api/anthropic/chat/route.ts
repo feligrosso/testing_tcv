@@ -1,7 +1,7 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { convertToCoreMessages, streamText } from "ai";
 
-export const runtime = "edge";
+export const runtime = 'nodejs';
 
 export async function POST(req: Request) {
   const { messages } = await req.json();

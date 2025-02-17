@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import Replicate from "replicate";
 
+// Switch to standard serverless runtime
+export const runtime = 'nodejs';
+
 const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN,
 });
