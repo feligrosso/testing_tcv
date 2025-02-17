@@ -67,15 +67,18 @@ interface OperationTiming {
 // Model configurations
 const MODELS = {
   DEEPSEEK: {
-    VERSION: 'deepseek-ai/deepseek-r1:0.1.0',
+    VERSION: 'deepseek-ai/deepseek-coder-33b-instruct',
     CONFIG: {
-      max_tokens: 1000,
+      max_tokens: 2000,
       temperature: 0.4,
-      top_p: 0.95
+      top_p: 0.95,
+      prompt_template: "### System:\n{system_prompt}\n\n### User:\n{prompt}\n\n### Assistant:\n"
     }
   },
   OPENAI: {
-    FALLBACK: 'gpt-4'
+    FALLBACK: 'gpt-4',
+    FAST: 'gpt-3.5-turbo-16k',
+    REASONING: 'gpt-4'
   }
 } as const;
 
@@ -534,43 +537,8 @@ export class SlideGenerationService {
     const timing = this.startTiming('generateActionTitle');
     
     try {
-        const prompt = `You are a McKinsey-trained management consultant. Analyze this data and create a compelling action title. Your response must demonstrate clear strategic reasoning and follow consulting best practices.
-
-Let's approach this step by step:
-
-1. First, identify the key quantitative insights:
-   - Look for specific numbers, time periods, and changes
-   - Find clear trends and patterns
-   - Identify the most impactful metrics
-
-2. Then, determine the strategic implications:
-   - What do these numbers tell us about the business?
-   - What opportunities or risks do they reveal?
-   - What actions do they suggest?
-
-3. Finally, craft a title that:
-   - Starts with the key quantitative insight
-   - Follows with the strategic implication
-   - Forms a complete, insight-driven sentence
-   - Tells a compelling story
-
-Here are examples of excellent action titles:
-1. "Between 2015 and 2025, Puerto Rico's applicants rose from 590 to 694, while matriculants climbed from 273 to 337, reflecting stable local demand that supports feasibility for a new medical program"
-   - Note how it starts with specific numbers
-   - Shows clear trends over time
-   - Connects data to strategic implication
-
-2. "Using a 492 MCAT and 3 GPA cutoff, about 59% of local applicants—around 452 individuals—meet both criteria, clarifying the potential talent pool and helping plan capacity"
-   - Begins with specific criteria
-   - Quantifies the opportunity
-   - Links to resource planning
-
-3. "In 2024–2025, Puerto Rico's medical schools saw 576 applicants, with 56% enrolling in-state and 44% going elsewhere, suggesting strong opportunity for a new UAGM med school"
-   - Presents current state with numbers
-   - Shows market dynamics
-   - Concludes with strategic opportunity
-
-Now, analyze this data and create a similar action title:
+        const systemPrompt = "You are a McKinsey-trained management consultant skilled in data-driven storytelling and strategic reasoning. Always respond with valid JSON.";
+        const userPrompt = `Analyze this data and create a compelling action title.
 
 Data Summary:
 ${JSON.stringify(data, null, 2)}
@@ -578,21 +546,21 @@ ${JSON.stringify(data, null, 2)}
 Consulting Framework:
 ${JSON.stringify(framework, null, 2)}
 
-Think through your reasoning step by step, then output a JSON response with these exact fields:
+Create a data-driven action title that:
+1. Starts with a specific quantitative insight
+2. Shows clear trends or patterns
+3. Concludes with strategic implications
+
+Format your response as JSON:
 {
-    "reasoning": [
-        "Step 1: Key quantitative findings...",
-        "Step 2: Pattern analysis...",
-        "Step 3: Strategic implications..."
-    ],
-    "title": "Your data-driven, reasoning-based action title here",
-    "supportingData": [
-        "Specific quantitative point 1 that builds your argument",
-        "Specific quantitative point 2 that builds your argument",
-        "Specific quantitative point 3 that builds your argument"
-    ],
-    "businessImplication": "Clear, actionable strategic implication"
+    "title": "Your data-driven action title here",
+    "supportingData": ["point1", "point2", "point3"],
+    "businessImplication": "Strategic implication"
 }`;
+
+        const formattedPrompt = MODELS.DEEPSEEK.CONFIG.prompt_template
+            .replace('{system_prompt}', systemPrompt)
+            .replace('{prompt}', userPrompt);
 
         // Try DeepSeek through Replicate first
         try {
@@ -600,7 +568,7 @@ Think through your reasoning step by step, then output a JSON response with thes
                 MODELS.DEEPSEEK.VERSION,
                 {
                     input: {
-                        prompt,
+                        prompt: formattedPrompt,
                         max_tokens: MODELS.DEEPSEEK.CONFIG.max_tokens,
                         temperature: MODELS.DEEPSEEK.CONFIG.temperature,
                         top_p: MODELS.DEEPSEEK.CONFIG.top_p
@@ -609,59 +577,60 @@ Think through your reasoning step by step, then output a JSON response with thes
             );
 
             // Handle Replicate's output format
-            const content = typeof output === 'string' ? output : 
-                          Array.isArray(output) ? output.join('') : 
-                          JSON.stringify(output);
+            let content = '';
+            if (Array.isArray(output)) {
+                content = output.join('');
+            } else if (typeof output === 'string') {
+                content = output;
+            } else if (output && typeof output === 'object') {
+                content = JSON.stringify(output);
+            }
             
             if (!content) {
-                throw new Error('Invalid Replicate response format');
+                throw new Error('Empty response from DeepSeek');
             }
 
-            const result = this.safeJsonParse(content, {
-                reasoning: [],
+            // Extract JSON from the response if it's wrapped in markdown
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            const jsonContent = jsonMatch ? jsonMatch[0] : content;
+
+            const result = this.safeJsonParse(jsonContent, {
                 title: 'Data Analysis Results',
                 supportingData: [],
                 businessImplication: 'Further analysis needed'
             });
 
-            // Log DeepSeek's reasoning steps
-            console.log('DeepSeek Analysis:', {
+            // Log success
+            console.log('DeepSeek Generation Success:', {
                 model: MODELS.DEEPSEEK.VERSION,
-                reasoning: result.reasoning,
+                resultLength: JSON.stringify(result).length,
                 timestamp: new Date().toISOString()
             });
 
-            // Enhanced validation
-            await this.validateActionTitleReasoning(result);
-
             this.endTiming(timing);
-            return {
-                title: result.title,
-                supportingData: result.supportingData,
-                businessImplication: result.businessImplication
-            };
+            return result;
         } catch (deepseekError) {
             console.warn('DeepSeek generation failed, falling back to GPT-4:', {
                 error: deepseekError instanceof Error ? deepseekError.message : 'Unknown error',
                 timestamp: new Date().toISOString()
             });
 
-            // Fallback to GPT-4
+            // Fallback to GPT-4 with the same prompt
             const fallbackResponse = await this.executeWithRetry(() =>
                 this.openai.chat.completions.create({
                     model: MODELS.OPENAI.FALLBACK,
                     messages: [
                         {
                             role: 'system',
-                            content: 'You are a McKinsey-trained management consultant skilled in data-driven storytelling and strategic reasoning.'
+                            content: 'You are a McKinsey-trained management consultant skilled in data-driven storytelling and strategic reasoning. Always respond with valid JSON.'
                         },
                         {
                             role: 'user',
-                            content: prompt
+                            content: formattedPrompt
                         }
                     ],
-                    temperature: 0.7,
-                    max_tokens: 500
+                    temperature: 0.4,
+                    max_tokens: 1000
                 })
             );
 
@@ -684,11 +653,8 @@ Think through your reasoning step by step, then output a JSON response with thes
         this.endTiming(timing);
         return {
             title: 'Data Analysis Results',
-            supportingData: [
-                'Analysis completed successfully',
-                'Review data for specific insights'
-            ],
-            businessImplication: 'Further analysis recommended for detailed insights'
+            supportingData: ['Analysis completed successfully'],
+            businessImplication: 'Further analysis recommended'
         };
     }
   }
@@ -1079,8 +1045,17 @@ Return JSON: {
   }
 
   private selectAppropriateModel(taskType: SubTask['type']): string {
-    // Use faster models by default
-    return 'gpt-3.5-turbo';
+    switch (taskType) {
+      case 'title':
+      case 'recommendations':
+        return MODELS.OPENAI.REASONING;
+      case 'visualization':
+        return MODELS.OPENAI.REASONING;
+      case 'keyPoints':
+      case 'summary':
+      default:
+        return MODELS.OPENAI.FAST;
+    }
   }
 
   // Helper method for safe JSON parsing
